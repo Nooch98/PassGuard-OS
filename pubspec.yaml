@@ -29,7 +29,7 @@ dependencies:
   logger: ^2.6.2
   intl: ^0.20.2
   collection: ^1.19.1
-  flutter_windowmanager: ^0.2.0
+  screen_protector: ^1.5.1
   device_info_plus: ^12.3.0
   shared_preferences: ^2.5.4
   encrypt: ^5.0.3
@@ -59,3 +59,4 @@ flutter_launcher_icons:
   image_path: "assets/icon/Logo.png"
   adaptive_icon_background: "#0B0E14"
   adaptive_icon_foreground: "assets/icon/Logo.png"
+
