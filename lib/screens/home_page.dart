@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_windowmanager/flutter_windowmanager.dart';
+import 'package:screen_protector/screen_protector.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -91,14 +91,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _applyScreenshotProtection() async {
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || Platform.isIOS) {
       bool enabled = await AuthService.getScreenshotProtection();
-      if (enabled) {
-        try {
-          await FlutterWindowManager.addFlags(FlutterWindowManager.FLAG_SECURE);
-        } catch (e) {
-          debugPrint('Screenshot protection not available: $e');
+      
+      try {
+        if (enabled) {
+          await ScreenProtector.preventScreenshotOn();
+        } else {
+          await ScreenProtector.preventScreenshotOff();
         }
+      } catch (e) {
+        debugPrint('SCREEN_PROTECTOR_ERROR: $e');
       }
     }
   }
@@ -2451,3 +2454,4 @@ class SecurityController {
   void pauseLocking() => shouldLockOnLeave = false;
   void resumeLocking() => shouldLockOnLeave = true;
 }
+
