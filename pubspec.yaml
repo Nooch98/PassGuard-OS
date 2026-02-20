@@ -1,0 +1,61 @@
+name: passguard
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  path_provider: ^2.1.5
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.1.4
+  sqflite: ^2.4.2
+  local_auth: ^3.0.0
+  otp: ^3.2.0
+  image_picker: ^1.2.1
+  share_plus: ^12.0.1
+  file_picker: ^10.3.10
+  cryptography: ^2.9.0
+  pointycastle: ^3.9.1
+  crypto: ^3.0.7
+  zxcvbn: ^1.0.0
+  flutter_riverpod: ^3.2.1
+  logger: ^2.6.2
+  intl: ^0.20.2
+  collection: ^1.19.1
+  flutter_windowmanager: ^0.2.0
+  device_info_plus: ^12.3.0
+  shared_preferences: ^2.5.4
+  encrypt: ^5.0.3
+  open_file: ^3.5.11
+  image: ^4.7.2
+  sqflite_common_ffi: ^2.4.0+2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+
+  uses-material-design: true
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  windows:
+    generate: true
+    image_path: "assets/icon/Logo.png"
+    icon_size: 48
+    
+  image_path: "assets/icon/Logo.png"
+  adaptive_icon_background: "#0B0E14"
+  adaptive_icon_foreground: "assets/icon/Logo.png"
