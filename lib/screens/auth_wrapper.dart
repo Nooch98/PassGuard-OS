@@ -42,8 +42,21 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
   }
 
   Future<void> _checkBiometrics() async {
-    bool canCheck = await _localAuth.canCheckBiometrics || await _localAuth.isDeviceSupported();
-    setState(() => _canCheckBio = canCheck);
+    try {
+      final bool isDeviceSupported = await _localAuth.isDeviceSupported();
+
+      final bool canCheckBiometrics = await _localAuth.canCheckBiometrics;
+      final List<BiometricType> availableBiometrics = await _localAuth.getAvailableBiometrics();
+
+      if (mounted) {
+        setState(() {
+          _canCheckBio = isDeviceSupported && (canCheckBiometrics || availableBiometrics.isNotEmpty);
+        });
+        
+      }
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => _canCheckBio = false);
+    }
   }
 
   @override
@@ -432,3 +445,4 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     );
   }
 }
+
