@@ -43,6 +43,9 @@ dev_dependencies:
 
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
+  mockito: ^5.6.3
+  build_runner: ^2.11.1
+  test: 1.26.3
 
 flutter:
 
@@ -59,4 +62,5 @@ flutter_launcher_icons:
   image_path: "assets/icon/Logo.png"
   adaptive_icon_background: "#0B0E14"
   adaptive_icon_foreground: "assets/icon/Logo.png"
+
 
