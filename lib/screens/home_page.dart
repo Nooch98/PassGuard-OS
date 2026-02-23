@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:screen_protector/screen_protector.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -13,6 +12,7 @@ import 'package:otp/otp.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:screen_protector/screen_protector.dart';
 
 import '../services/auth_service.dart';
 import '../services/compression_service.dart';
@@ -59,6 +59,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _loadPasswords();
 
+    _migrateRecoveryCodesToEncrypted();
+
     SessionManager().initialize(
       onTimeout: _handleSessionTimeout,
       timeout: Duration(minutes: 5),
@@ -87,6 +89,77 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       SessionManager().resetTimer();
     } else if (state == AppLifecycleState.resumed) {
       SessionManager().resetTimer();
+    }
+  }
+
+  Future<void> _migrateRecoveryCodesToEncrypted() async {
+    try {
+      final db = await DBHelper.database;
+      final masterKeyString = String.fromCharCodes(widget.masterKey);
+
+      final List<Map<String, dynamic>> codes = await db.query('recovery_codes');
+      
+      if (codes.isEmpty) {
+        return;
+      }
+      
+      int migratedCount = 0;
+      int alreadyEncrypted = 0;
+      int errors = 0;
+      
+      for (var code in codes) {
+        final rawCode = code['code'];
+        
+        if (rawCode == null || rawCode is! String) {
+          debugPrint('MIGRATION: Invalid code found - ID: ${code['id']}');
+          errors++;
+          continue;
+        }
+
+        bool looksEncrypted = rawCode.contains('U2FsdGVk') || 
+                              rawCode.length > 50 ||
+                              !RegExp(r'^[A-Za-z0-9\-]+$').hasMatch(rawCode);
+        
+        if (looksEncrypted) {
+          alreadyEncrypted++;
+          continue;
+        }
+
+        try {
+          final encrypted = EncryptionService.encrypt(rawCode, masterKeyString);
+          
+          await db.update(
+            'recovery_codes',
+            {'code': encrypted},
+            where: 'id = ?',
+            whereArgs: [code['id']],
+          );
+          
+          migratedCount++;
+        } catch (encryptError) {
+          errors++;
+        }
+      }
+      
+      if (migratedCount > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🔒 SECURITY_UPGRADE: $migratedCount recovery codes encrypted'),
+            backgroundColor: const Color(0xFF00FF00),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('MIGRATION_ERROR: $e'),
+          backgroundColor: const Color(0xFFFF0000),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -1703,8 +1776,103 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("> EMERGENCY_CODES: $platform",
-                    style: const TextStyle(color: Color(0xFFFF00FF), fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text("> EMERGENCY_CODES: $platform",
+                          style: const TextStyle(color: Color(0xFFFF00FF), fontFamily: 'monospace', fontWeight: FontWeight.bold, fontSize: 13)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.security_update, color: Color(0xFF00FBFF), size: 18),
+                      tooltip: "ENCRYPT_OLD_CODES",
+                      onPressed: () async {
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (context) => const Center(
+                            child: CircularProgressIndicator(color: Color(0xFF00FBFF)),
+                          ),
+                        );
+
+                        try {
+                          final codes = await db.query('recovery_codes', where: 'account_id = ?', whereArgs: [accountId]);
+                          final masterKeyString = String.fromCharCodes(widget.masterKey);
+                          int encrypted = 0;
+                          int alreadyEncrypted = 0;
+                          
+                          for (var code in codes) {
+                            final rawCode = code['code'];
+                            
+                            if (rawCode == null || rawCode is! String) {
+                              continue;
+                            }
+
+                            bool looksEncrypted = rawCode.contains('U2FsdGVk') || 
+                                                  rawCode.length > 50 ||
+                                                  !RegExp(r'^[A-Za-z0-9\-]+$').hasMatch(rawCode);
+                            
+                            if (!looksEncrypted) {
+                              try {
+                                final encryptedCode = EncryptionService.encrypt(rawCode, masterKeyString);
+                                await db.update(
+                                  'recovery_codes',
+                                  {'code': encryptedCode},
+                                  where: 'id = ?',
+                                  whereArgs: [code['id']],
+                                );
+                                encrypted++;
+                                debugPrint('✓ Encrypted code ID: ${code['id']}');
+                              } catch (e) {
+                                debugPrint('✗ Failed to encrypt code ID: ${code['id']}: $e');
+                              }
+                            } else {
+                              alreadyEncrypted++;
+                            }
+                          }
+                          if (context.mounted) Navigator.pop(context);
+                          setModalState(() {});
+                          if (context.mounted) {
+                            String message;
+                            Color bgColor;
+                            
+                            if (encrypted > 0) {
+                              message = '✓ $encrypted CODES_ENCRYPTED';
+                              bgColor = const Color(0xFF00FF00);
+                            } else if (alreadyEncrypted > 0) {
+                              message = '✓ ALL_CODES_ALREADY_ENCRYPTED ($alreadyEncrypted)';
+                              bgColor = const Color(0xFF00FBFF);
+                            } else {
+                              message = 'NO_CODES_FOUND';
+                              bgColor = Colors.orange;
+                            }
+                            
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(message),
+                                backgroundColor: bgColor,
+                                behavior: SnackBarBehavior.floating,
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) Navigator.pop(context);
+                          
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('ENCRYPTION_ERROR: $e'),
+                                backgroundColor: Colors.red,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  ],
+                ),
                 const Divider(color: Colors.white10, height: 20),
 
                 Expanded(
@@ -1722,21 +1890,83 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         itemBuilder: (context, i) {
                           final code = snapshot.data![i];
                           bool isUsed = code['is_used'] == 1;
+                          final rawCode = code['code'];
+
+                          String displayCode = 'ERROR_LOADING_CODE';
+                          bool isEncrypted = false;
+                          
+                          if (rawCode != null && rawCode is String) {
+                            bool looksEncrypted = rawCode.contains('U2FsdGVk') || 
+                                                  rawCode.length > 50 ||
+                                                  !RegExp(r'^[A-Za-z0-9\-]+$').hasMatch(rawCode);
+                            
+                            if (looksEncrypted) {
+                              try {
+                                displayCode = EncryptionService.decrypt(rawCode, widget.masterKey);
+                                isEncrypted = true;
+                              } catch (e) {
+                                displayCode = 'DECRYPTION_ERROR';
+                                isEncrypted = false;
+                              }
+                            } else {
+                              displayCode = rawCode;
+                              isEncrypted = false;
+                            }
+                          } else {
+                            displayCode = 'INVALID_CODE_DATA';
+                          }
+                          
                           return ListTile(
                             dense: true,
                             contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                            leading: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  isEncrypted ? Icons.lock : Icons.lock_open,
+                                  color: isEncrypted ? const Color(0xFF00FF00) : Colors.orange,
+                                  size: 16,
+                                ),
+                              ],
+                            ),
                             title: Text(
-                              code['code'],
+                              displayCode,
                               style: TextStyle(
                                   fontFamily: 'monospace',
-                                  fontSize: 13,
-                                  color: isUsed ? Colors.white24 : Colors.white,
+                                  fontSize: displayCode.contains('ERROR') || displayCode.contains('INVALID') ? 10 : 13,
+                                  color: isUsed 
+                                    ? Colors.white24 
+                                    : (displayCode.contains('ERROR') || displayCode.contains('INVALID')
+                                        ? Colors.red 
+                                        : Colors.white),
                                   decoration: isUsed ? TextDecoration.lineThrough : null
                               ),
                             ),
+                            subtitle: !isEncrypted && !displayCode.contains('ERROR') && !displayCode.contains('INVALID')
+                              ? const Text(
+                                  'NOT_ENCRYPTED - Tap migrate button above',
+                                  style: TextStyle(color: Colors.orange, fontSize: 9),
+                                )
+                              : null,
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                if (!displayCode.contains('ERROR') && !displayCode.contains('INVALID'))
+                                  IconButton(
+                                    icon: const Icon(Icons.copy, color: Color(0xFF00FBFF), size: 18),
+                                    tooltip: "COPY_CODE",
+                                    onPressed: () {
+                                      Clipboard.setData(ClipboardData(text: displayCode));
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('RECOVERY_CODE_COPIED'),
+                                          backgroundColor: Color(0xFF00FBFF),
+                                          duration: Duration(seconds: 1),
+                                          behavior: SnackBarBehavior.floating,
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 Checkbox(
                                     activeColor: const Color(0xFFFF00FF),
                                     checkColor: Colors.black,
@@ -1755,12 +1985,55 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
                                   tooltip: "DELETE_NODE",
                                   onPressed: () async {
-                                    await db.delete(
-                                        'recovery_codes',
-                                        where: 'id = ?',
-                                        whereArgs: [code['id']]
+                                    bool? confirmDelete = await showDialog<bool>(
+                                      context: context,
+                                      builder: (context) => AlertDialog(
+                                        backgroundColor: const Color(0xFF0A0A0E),
+                                        shape: RoundedRectangleBorder(
+                                          side: const BorderSide(color: Colors.red, width: 1),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        title: const Text(
+                                          '> CONFIRM_DELETE',
+                                          style: TextStyle(color: Colors.red, fontFamily: 'monospace', fontSize: 14),
+                                        ),
+                                        content: Text(
+                                          'Delete recovery code?${!displayCode.contains('ERROR') ? '\n\n$displayCode' : ''}',
+                                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(context, false),
+                                            child: const Text('CANCEL'),
+                                          ),
+                                          ElevatedButton(
+                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                            onPressed: () => Navigator.pop(context, true),
+                                            child: const Text('DELETE', style: TextStyle(fontWeight: FontWeight.bold)),
+                                          ),
+                                        ],
+                                      ),
                                     );
-                                    setModalState(() {});
+
+                                    if (confirmDelete == true) {
+                                      await db.delete(
+                                          'recovery_codes',
+                                          where: 'id = ?',
+                                          whereArgs: [code['id']]
+                                      );
+                                      setModalState(() {});
+                                      
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('RECOVERY_CODE_DELETED'),
+                                            backgroundColor: Colors.red,
+                                            duration: Duration(seconds: 1),
+                                            behavior: SnackBarBehavior.floating,
+                                          ),
+                                        );
+                                      }
+                                    }
                                   },
                                 ),
                               ],
@@ -1820,20 +2093,77 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               context: context,
                               builder: (context) => AlertDialog(
                                 backgroundColor: const Color(0xFF0A0A0E),
+                                shape: RoundedRectangleBorder(
+                                  side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
                                 title: const Text("> NODES_DETECTED", 
-                                               style: TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace')),
+                                               style: TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace', fontSize: 16)),
                                 content: SingleChildScrollView(
-                                  child: Text(codes.join("\n"), 
-                                             style: const TextStyle(color: Colors.white70, fontFamily: 'monospace')),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${codes.length} recovery codes found:',
+                                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF16161D),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: Colors.white10),
+                                        ),
+                                        constraints: const BoxConstraints(maxHeight: 200),
+                                        child: SingleChildScrollView(
+                                          child: Text(
+                                            codes.join("\n"), 
+                                            style: const TextStyle(
+                                              color: Colors.white70, 
+                                              fontFamily: 'monospace',
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 15),
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF00FBFF).withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: const Color(0xFF00FBFF).withOpacity(0.3)),
+                                        ),
+                                        child: const Row(
+                                          children: [
+                                            Icon(Icons.lock, color: Color(0xFF00FBFF), size: 16),
+                                            SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                'Codes will be encrypted with AES-256',
+                                                style: TextStyle(color: Color(0xFF00FBFF), fontSize: 10),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                                 actions: [
                                   TextButton(
                                     onPressed: () => Navigator.pop(context, false), 
-                                    child: const Text("CANCEL")
+                                    child: const Text("CANCEL", style: TextStyle(color: Colors.white54))
                                   ),
-                                  TextButton(
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF00FBFF),
+                                      foregroundColor: Colors.black,
+                                    ),
                                     onPressed: () => Navigator.pop(context, true), 
-                                    child: const Text("CONFIRM_IMPORT")
+                                    child: const Text("IMPORT_ENCRYPTED", style: TextStyle(fontWeight: FontWeight.bold))
                                   ),
                                 ],
                               ),
@@ -1841,23 +2171,52 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
                             if (confirm == true) {
                               final db = await DBHelper.database;
+                              final String masterKeyAsString = String.fromCharCodes(widget.masterKey);
+                              
                               for (var codeStr in codes) {
+                                final encryptedCode = EncryptionService.encrypt(codeStr, masterKeyAsString);
+                                
                                 await db.insert('recovery_codes', {
                                   'account_id': accountId,
-                                  'code': codeStr,
+                                  'code': encryptedCode,
                                   'is_used': 0,
                                   'created_at': DateTime.now().toIso8601String(),
                                 });
                               }
+
                               if (await file.exists()) await file.delete();
+                              
                               setModalState(() {});
-                              _showSuccessSnackBar("> ${codes.length} CODES_SECURED");
+                              
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text("> ${codes.length} CODES_SECURED_AND_ENCRYPTED"),
+                                    backgroundColor: const Color(0xFF00FBFF),
+                                    behavior: SnackBarBehavior.floating,
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                              }
+                            }
+                          } else {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('NO_VALID_CODES_FOUND_IN_FILE'),
+                                  backgroundColor: Colors.orange,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
                             }
                           }
                         }
                       } catch (e) {
                         security.resumeLocking();
-                        _showErrorSnackBar("> SYSTEM_ERROR: $e");
+                        debugPrint('RECOVERY_CODE_IMPORT_ERROR: $e');
+                        if (context.mounted) {
+                          _showErrorSnackBar("> SYSTEM_ERROR: $e");
+                        }
                       }
                     },
                   ),
@@ -2454,4 +2813,3 @@ class SecurityController {
   void pauseLocking() => shouldLockOnLeave = false;
   void resumeLocking() => shouldLockOnLeave = true;
 }
-
