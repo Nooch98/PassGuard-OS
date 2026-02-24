@@ -27,6 +27,54 @@ class PasswordModel {
     this.passwordHistory,
   });
 
+  String get faviconUrl {
+    String domain = platform.toLowerCase().trim();
+    
+    domain = domain.replaceAll('www.', '');
+    
+    domain = domain.replaceAll(RegExp(r'[^a-z0-9\-\.]'), '');
+    
+    if (!domain.contains('.')) {
+      domain = _detectDomain(domain);
+    }
+    
+    return 'https://www.google.com/s2/favicons?domain=$domain&sz=64';
+  }
+  
+  String _detectDomain(String service) {
+    final Map<String, String> knownServices = {
+      'google': 'google.com',
+      'gmail': 'gmail.com',
+      'facebook': 'facebook.com',
+      'twitter': 'twitter.com',
+      'instagram': 'instagram.com',
+      'github': 'github.com',
+      'linkedin': 'linkedin.com',
+      'netflix': 'netflix.com',
+      'amazon': 'amazon.com',
+      'microsoft': 'microsoft.com',
+      'apple': 'apple.com',
+      'spotify': 'spotify.com',
+      'discord': 'discord.com',
+      'slack': 'slack.com',
+      'dropbox': 'dropbox.com',
+      'paypal': 'paypal.com',
+      'ebay': 'ebay.com',
+      'reddit': 'reddit.com',
+      'youtube': 'youtube.com',
+      'twitch': 'twitch.tv',
+      'steam': 'steampowered.com',
+      'yahoo': 'yahoo.com',
+      'outlook': 'outlook.com',
+      'zoom': 'zoom.us',
+      'tiktok': 'tiktok.com',
+      'whatsapp': 'whatsapp.com',
+      'telegram': 'telegram.org',
+    };
+    
+    return knownServices[service] ?? '$service.com';
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
