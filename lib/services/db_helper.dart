@@ -23,7 +23,7 @@ class DBHelper {
     
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -47,6 +47,42 @@ class DBHelper {
           await db.execute(
             'ALTER TABLE accounts ADD COLUMN password_history TEXT'
           );
+        }
+        if (oldVersion < 3) {
+          await db.execute('''
+            CREATE TABLE identities (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              title TEXT NOT NULL,
+              type TEXT NOT NULL,
+              full_name TEXT,
+              first_name TEXT,
+              middle_name TEXT,
+              last_name TEXT,
+              email TEXT,
+              phone TEXT,
+              date_of_birth TEXT,
+              gender TEXT,
+              address1 TEXT,
+              address2 TEXT,
+              city TEXT,
+              state TEXT,
+              zip_code TEXT,
+              country TEXT,
+              card_number TEXT,
+              card_holder TEXT,
+              expiration_date TEXT,
+              cvv TEXT,
+              card_type TEXT,
+              document_number TEXT,
+              issuing_authority TEXT,
+              issue_date TEXT,
+              expiry_date TEXT,
+              notes TEXT,
+              is_favorite INTEGER DEFAULT 0,
+              created_at TEXT,
+              updated_at TEXT
+            )
+          ''');
         }
       },
     );
@@ -96,6 +132,41 @@ class DBHelper {
       CREATE TABLE settings(
         key TEXT PRIMARY KEY,
         value TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE identities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        type TEXT NOT NULL,
+        full_name TEXT,
+        first_name TEXT,
+        middle_name TEXT,
+        last_name TEXT,
+        email TEXT,
+        phone TEXT,
+        date_of_birth TEXT,
+        gender TEXT,
+        address1 TEXT,
+        address2 TEXT,
+        city TEXT,
+        state TEXT,
+        zip_code TEXT,
+        country TEXT,
+        card_number TEXT,
+        card_holder TEXT,
+        expiration_date TEXT,
+        cvv TEXT,
+        card_type TEXT,
+        document_number TEXT,
+        issuing_authority TEXT,
+        issue_date TEXT,
+        expiry_date TEXT,
+        notes TEXT,
+        is_favorite INTEGER DEFAULT 0,
+        created_at TEXT,
+        updated_at TEXT
       )
     ''');
   }
