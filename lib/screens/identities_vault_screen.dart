@@ -15,7 +15,6 @@ class IdentitiesVaultScreen extends StatefulWidget {
   State<IdentitiesVaultScreen> createState() => IdentitiesVaultScreenState();
 }
 
-// Nota: He quitado el "_" a la clase State para que sea accesible vía GlobalKey
 class IdentitiesVaultScreenState extends State<IdentitiesVaultScreen> {
   List<IdentityModel> _identities = [];
   String _searchQuery = '';
@@ -27,11 +26,10 @@ class IdentitiesVaultScreenState extends State<IdentitiesVaultScreen> {
     _loadIdentities();
   }
 
-  // Método para desencriptar campos rápidos (como el número de tarjeta para el subtítulo)
   String _decryptField(String? encrypted) {
     if (encrypted == null || encrypted.isEmpty) return '';
     try {
-      return EncryptionService.decrypt(encrypted, widget.masterKey);
+      return EncryptionService.decrypt(combinedText: encrypted, masterKeyBytes: widget.masterKey);
     } catch (e) {
       return '***';
     }
@@ -58,17 +56,14 @@ class IdentitiesVaultScreenState extends State<IdentitiesVaultScreen> {
     }).toList();
   }
 
-  // MÉTODO PÚBLICO: Para ser llamado desde el FAB de la HomePage
   void showIdentityFormExternal({IdentityModel? existingIdentity}) {
     _showIdentityForm(existingIdentity: existingIdentity);
   }
 
   @override
   Widget build(BuildContext context) {
-    // Ya no usamos Scaffold aquí, usamos un Container o Column
     return Column(
       children: [
-        // Buscador Estilo Terminal
         Padding(
           padding: const EdgeInsets.all(16),
           child: TextField(
@@ -95,8 +90,6 @@ class IdentitiesVaultScreenState extends State<IdentitiesVaultScreen> {
             onChanged: (value) => setState(() => _searchQuery = value),
           ),
         ),
-
-        // Lista de identidades
         Expanded(
           child: _filteredIdentities.isEmpty
               ? _buildEmptyState()
@@ -224,7 +217,6 @@ class IdentitiesVaultScreenState extends State<IdentitiesVaultScreen> {
       case 'PERSON':
         return identity.fullName ?? identity.email ?? 'ID_UNSET';
       case 'CARD':
-        // Desencriptamos para mostrar los últimos 4 dígitos
         final rawCard = _decryptField(identity.cardNumber);
         return rawCard.length > 4 
             ? '•••• ${rawCard.substring(rawCard.length - 4)}' 
