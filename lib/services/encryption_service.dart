@@ -4,36 +4,47 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 class EncryptionService {
+  static const String _v3Prefix = "v3";
   static const String _v2Prefix = "v2";
   static const int _junkBytesLength = 64;
-  static const String _v2Salt = "CYBER_SECURE_SALT_2026_PRO_STRETCH";
+  
+  static const String _v2SaltLegacy = "CYBER_SECURE_SALT_2026_PRO_STRETCH";
 
+  static enc.Key _deriveKeyV3(String password, String saltBase64) {
+    final saltBytes = base64.decode(saltBase64);
+    List<int> value = utf8.encode(password) + saltBytes;
+        for (int i = 0; i < 100000; i++) {
+      value = sha256.convert(value).bytes;
+    }
+    return enc.Key(Uint8List.fromList(value));
+  }
+
+  static enc.Key _deriveKeyV2(String password) {
+    List<int> value = utf8.encode(password + _v2SaltLegacy);
+    for (int i = 0; i < 50000; i++) {
+      value = sha256.convert(value).bytes;
+    }
+    return enc.Key(Uint8List.fromList(value));
+  }
 
   static enc.Key _deriveKeyV1(String password) {
     final hash = sha256.convert(utf8.encode(password)).bytes;
     return enc.Key(Uint8List.fromList(hash));
   }
 
-  static enc.Key _deriveKeyV2(String password) {
-    List<int> value = utf8.encode(password + _v2Salt);
-    
-    for (int i = 0; i < 50000; i++) {
-      value = sha256.convert(value).bytes;
-    }
-    
-    return enc.Key(Uint8List.fromList(value));
-  }
-
   static String encrypt(String text, String masterPassword) {
     if (text.isEmpty) return "";
     
-    final key = _deriveKeyV2(masterPassword);
+    final salt = enc.IV.fromSecureRandom(16);
+    final saltBase64 = salt.base64;
+
+    final key = _deriveKeyV3(masterPassword, saltBase64);
     final iv = enc.IV.fromSecureRandom(16); 
     
     final encrypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
     final encrypted = encrypter.encrypt(text, iv: iv);
 
-    return "$_v2Prefix.${iv.base64}.${encrypted.base64}";
+    return "$_v3Prefix.$saltBase64.${iv.base64}.${encrypted.base64}";
   }
 
   static String decrypt({
@@ -47,13 +58,32 @@ class EncryptionService {
       final passwordString = utf8.decode(masterKeyBytes);
       final parts = combinedText.split('.');
 
-      if (parts.length == 3 && parts[0] == _v2Prefix) {
+      if (parts.length == 4 && parts[0] == _v3Prefix) {
+        final saltBase64 = parts[1];
+        final ivBase64 = parts[2];
+        final cipherText = parts[3];
+
+        final key = _deriveKeyV3(passwordString, saltBase64);
+        final iv = enc.IV.fromBase64(ivBase64);
+        final encrypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
+        
+        return encrypter.decrypt64(cipherText, iv: iv);
+      } 
+      
+      else if (parts.length == 3 && parts[0] == _v2Prefix) {
         final key = _deriveKeyV2(passwordString);
         final iv = enc.IV.fromBase64(parts[1]);
         final cipherText = parts[2];
         final encrypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
-        return encrypter.decrypt64(cipherText, iv: iv);
-      } 
+        
+        final decryptedText = encrypter.decrypt64(cipherText, iv: iv);
+
+        if (onUpgrade != null) {
+          onUpgrade(encrypt(decryptedText, passwordString));
+        }
+        return decryptedText;
+      }
+
       else if (parts.length == 2) {
         final key = _deriveKeyV1(passwordString);
         final iv = enc.IV.fromBase64(parts[0]);
@@ -63,10 +93,8 @@ class EncryptionService {
         final decryptedText = encrypter.decrypt64(cipherText, iv: iv);
 
         if (onUpgrade != null) {
-          final v2Data = encrypt(decryptedText, passwordString);
-          onUpgrade(v2Data);
+          onUpgrade(encrypt(decryptedText, passwordString));
         }
-
         return decryptedText;
       }
 
