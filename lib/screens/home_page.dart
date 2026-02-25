@@ -2719,39 +2719,57 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     
                   case 'view':
                     String dec = EncryptionService.decrypt(
-                      combinedText: item.password, 
+                      combinedText: item.password,
                       masterKeyBytes: widget.masterKey,
-                      onUpgrade: (v3Data) async {
-                        final db = await DBHelper.database;
-                        await db.update('accounts', 
-                          {'password': v3Data, 'updated_at': DateTime.now().toIso8601String()},
-                          where: 'id = ?', whereArgs: [item.id]
-                        );
-                        debugPrint("SILENT_UPGRADE: Password for ${item.platform} migrated to V3");
+                      onUpgrade: (v4Data) {
+                        () async {
+                          final db = await DBHelper.database;
+                          await db.update(
+                            'accounts',
+                            {
+                              'password': v4Data,
+                              'updated_at': DateTime.now().toIso8601String(),
+                            },
+                            where: 'id = ?',
+                            whereArgs: [item.id],
+                          );
+                          debugPrint(
+                            "SILENT_UPGRADE: Password for ${item.platform} migrated to V4",
+                          );
+                        }();
                       },
                     );
 
                     String? decryptedNotes;
                     if (item.notes != null && item.notes!.isNotEmpty) {
                       decryptedNotes = EncryptionService.decrypt(
-                        combinedText: item.notes!, 
+                        combinedText: item.notes!,
                         masterKeyBytes: widget.masterKey,
-                        onUpgrade: (v3Data) async {
-                          final db = await DBHelper.database;
-                          await db.update('accounts', 
-                            {'notes': v3Data, 'updated_at': DateTime.now().toIso8601String()},
-                            where: 'id = ?', whereArgs: [item.id]
-                          );
-                          debugPrint("SILENT_UPGRADE: Notes for ${item.platform} migrated to V3");
+                        onUpgrade: (v4Data) {
+                          () async {
+                            final db = await DBHelper.database;
+                            await db.update(
+                              'accounts',
+                              {
+                                'notes': v4Data,
+                                'updated_at': DateTime.now().toIso8601String(),
+                              },
+                              where: 'id = ?',
+                              whereArgs: [item.id],
+                            );
+                            debugPrint(
+                              "SILENT_UPGRADE: Notes for ${item.platform} migrated to V4",
+                            );
+                          }();
                         },
                       );
                     }
 
                     await DBHelper.updateLastUsed(item.id!);
                     _onUserInteraction();
-                    
+
                     if (!mounted) return;
-                    
+
                     showDialog(
                       context: context,
                       builder: (_) => AlertDialog(
@@ -2760,26 +2778,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        title: Text("> ${item.platform}", 
-                                  style: const TextStyle(color: Colors.white, fontSize: 16)),
+                        title: Text("> ${item.platform}",
+                            style: const TextStyle(color: Colors.white, fontSize: 16)),
                         content: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('USERNAME:', 
-                                    style: TextStyle(color: Colors.white54, fontSize: 10)),
+                            const Text('USERNAME:',
+                                style: TextStyle(color: Colors.white54, fontSize: 10)),
                             SelectableText(item.username,
                                 style: const TextStyle(color: Colors.white70, fontSize: 14)),
                             const SizedBox(height: 15),
-                            const Text('PASSWORD:', 
-                                    style: TextStyle(color: Colors.white54, fontSize: 10)),
+                            const Text('PASSWORD:',
+                                style: TextStyle(color: Colors.white54, fontSize: 10)),
                             SelectableText(dec,
-                                style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 18, fontFamily: 'monospace')),
-                            
+                                style: const TextStyle(
+                                    color: Color(0xFF00FBFF),
+                                    fontSize: 18,
+                                    fontFamily: 'monospace')),
                             if (decryptedNotes != null) ...[
                               const SizedBox(height: 15),
-                              const Text('NOTES:', 
-                                      style: TextStyle(color: Colors.white54, fontSize: 10)),
+                              const Text('NOTES:',
+                                  style: TextStyle(color: Colors.white54, fontSize: 10)),
                               SelectableText(
                                 decryptedNotes,
                                 style: const TextStyle(color: Colors.white70, fontSize: 12),
@@ -3033,4 +3053,3 @@ class SecurityController {
   void pauseLocking() => shouldLockOnLeave = false;
   void resumeLocking() => shouldLockOnLeave = true;
 }
-
