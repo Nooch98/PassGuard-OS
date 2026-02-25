@@ -18,15 +18,10 @@ class IdentityDetailsSheet extends StatelessWidget {
   String _decryptField(String? encrypted) {
     if (encrypted == null || encrypted.isEmpty) return '';
     try {
-      // 1. Convertimos los bytes de la llave a su representación en String (Base64)
-      // para que coincida con lo que enviamos al encriptar.
       final String masterKeyAsBase64 = base64Encode(masterKey);
-      
-      // 2. Convertimos ese String a bytes UTF-8 para que el 'utf8.decode'
-      // interno del EncryptionService no explote.
       final Uint8List compatibleBytes = Uint8List.fromList(utf8.encode(masterKeyAsBase64));
 
-      return EncryptionService.decrypt(encrypted, compatibleBytes);
+      return EncryptionService.decrypt(combinedText: encrypted, masterKeyBytes: compatibleBytes);
     } catch (e) {
       debugPrint("Error decrypting in details: $e");
       return 'DECRYPTION_ERROR';
@@ -70,7 +65,6 @@ class IdentityDetailsSheet extends StatelessWidget {
             const Divider(color: Colors.white10),
             const SizedBox(height: 16),
 
-            // Type badge
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
@@ -102,13 +96,11 @@ class IdentityDetailsSheet extends StatelessWidget {
             ),
             const SizedBox(height: 24),
 
-            // Dynamic content based on type
             if (identity.type == 'PERSON') ..._buildPersonDetails(context),
             if (identity.type == 'CARD') ..._buildCardDetails(context),
             if (identity.type == 'LICENSE' || identity.type == 'PASSPORT') 
               ..._buildDocumentDetails(context),
 
-            // Common: Notes
             if (identity.notes != null && identity.notes!.isNotEmpty) ...[
               const SizedBox(height: 24),
               _buildSection('NOTES', context),
@@ -128,7 +120,6 @@ class IdentityDetailsSheet extends StatelessWidget {
               ),
             ],
 
-            // Timestamps
             const SizedBox(height: 24),
             Container(
               padding: const EdgeInsets.all(12),
@@ -352,7 +343,6 @@ class IdentityDetailsSheet extends StatelessWidget {
   }
 }
 
-// Widget para campos seguros con toggle de visibilidad
 class _SecureFieldWidget extends StatefulWidget {
   final String label;
   final String value;
@@ -376,7 +366,6 @@ class _SecureFieldWidgetState extends State<_SecureFieldWidget> {
     String displayValue = widget.value;
     
     if (widget.maskable && !_isVisible && displayValue.length > 4) {
-      // Mostrar solo los últimos 4 caracteres
       displayValue = '•' * (displayValue.length - 4) + displayValue.substring(displayValue.length - 4);
     }
 
