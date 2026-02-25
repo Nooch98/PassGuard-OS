@@ -138,7 +138,7 @@ Encrypted SQLite Database
 | Account Passwords | SQLite | AES-256 encrypted |
 | Notes | SQLite | AES-256 encrypted |
 | 2FA Seeds (TOTP) | SQLite | Not encrypted (already secret) |
-| Recovery Codes | SQLite | AES-256 encrypted) |
+| Recovery Codes | SQLite | AES-256 encrypted |
 | Biometric Key | OS Keystore | Platform-managed |
 
 ### Security Audit
