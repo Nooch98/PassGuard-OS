@@ -27,7 +27,6 @@ import '../services/security_analyzer.dart';
 import '../models/password_model.dart';
 import '../services/SteganographyService.dart';
 import '../widgets/password_generator_dialog.dart';
-import '../models/recovery_code_model.dart';
 
 Timer? _clipboardTimer;
 
@@ -586,8 +585,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _processImportedData(String encryptedData) async {
     try {
       final String decryptedJson = EncryptionService.decrypt(
-        encryptedData,
-        widget.masterKey
+        combinedText: encryptedData,
+        masterKeyBytes: widget.masterKey
       );
 
       final Map<String, dynamic> vaultData = jsonDecode(decryptedJson);
@@ -1253,13 +1252,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         final String encryptedStr = CompressionService.decompressFromQR(compressedData);
 
                         decryptedJson = EncryptionService.decrypt(
-                            encryptedStr,
-                            widget.masterKey
+                            combinedText: encryptedStr,
+                            masterKeyBytes: widget.masterKey
                         );
                       } catch (e) {
                         decryptedJson = EncryptionService.decrypt(
-                            compressedData,
-                            widget.masterKey
+                            combinedText: compressedData,
+                            masterKeyBytes: widget.masterKey
                         );
                       }
 
@@ -1330,9 +1329,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       csv.writeln('Platform,Username,Password,Category,Notes,Created At');
       
       for (var password in _passwords) {
-        final decryptedPass = EncryptionService.decrypt(password.password, widget.masterKey);
+        final decryptedPass = EncryptionService.decrypt(combinedText: password.password, masterKeyBytes: widget.masterKey);
         final decryptedNotes = password.notes != null 
-          ? EncryptionService.decrypt(password.notes!, widget.masterKey)
+          ? EncryptionService.decrypt(combinedText: password.notes!, masterKeyBytes: widget.masterKey)
           : '';
         
         csv.writeln(
@@ -1374,12 +1373,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final userC = TextEditingController(text: existingPassword?.username ?? '');
     final passC = TextEditingController(
       text: existingPassword != null 
-        ? EncryptionService.decrypt(existingPassword.password, widget.masterKey)
+        ? EncryptionService.decrypt(combinedText: existingPassword.password, masterKeyBytes: widget.masterKey)
         : ''
     );
     final notesC = TextEditingController(
       text: existingPassword?.notes != null
-        ? EncryptionService.decrypt(existingPassword!.notes!, widget.masterKey)
+        ? EncryptionService.decrypt(combinedText: existingPassword!.notes!, masterKeyBytes: widget.masterKey)
         : ''
     );
 
@@ -1905,7 +1904,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             
                             if (looksEncrypted) {
                               try {
-                                displayCode = EncryptionService.decrypt(rawCode, widget.masterKey);
+                                EncryptionService.decrypt(combinedText: rawCode, masterKeyBytes: widget.masterKey,);
                                 isEncrypted = true;
                               } catch (e) {
                                 displayCode = 'DECRYPTION_ERROR';
@@ -2255,7 +2254,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             itemCount: password.passwordHistory!.length,
             itemBuilder: (context, index) {
               final encryptedOldPass = password.passwordHistory![index];
-              final decryptedOldPass = EncryptionService.decrypt(encryptedOldPass, widget.masterKey);
+              final decryptedOldPass = EncryptionService.decrypt(combinedText: encryptedOldPass, masterKeyBytes: widget.masterKey);
               
               return ListTile(
                 dense: true,
@@ -2505,9 +2504,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             borderRadius: BorderRadius.circular(4),
           ),
           child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            
-            // NUEVO: Leading con favicon
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),            
             leading: Container(
               width: 48,
               height: 48,
@@ -2521,7 +2518,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ),
               child: Stack(
                 children: [
-                  // Favicon del servicio
                   Center(
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(6),
@@ -2531,7 +2527,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         height: 32,
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) {
-                          // Fallback: icono de categoría
                           return Icon(
                             _getCategoryIcon(item.category),
                             color: categoryColor,
@@ -2558,7 +2553,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
-                  // Badge de favorito (esquina superior derecha)
                   if (item.isFavorite)
                     Positioned(
                       top: 0,
@@ -2635,28 +2629,59 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       children: [
                         const Icon(Icons.security, size: 12, color: Color(0xFF00FBFF)),
                         const SizedBox(width: 6),
-                        Text(
-                          () {
+                        InkWell(
+                          onTap: () {
                             try {
-                              if (item.otpSeed == null || item.otpSeed!.isEmpty) return "000 000";
-                              return OTP.generateTOTPCodeString(
-                                item.otpSeed!,
-                                DateTime.now().millisecondsSinceEpoch,
-                                interval: 30,
-                                length: 6,
-                                algorithm: Algorithm.SHA1,
-                                isGoogle: true
-                              ).replaceAllMapped(RegExp(r".{3}"), (match) => "${match.group(0)} ");
+                              if (item.otpSeed != null && item.otpSeed!.isNotEmpty) {
+                                final cleanCode = OTP.generateTOTPCodeString(
+                                  item.otpSeed!,
+                                  DateTime.now().millisecondsSinceEpoch,
+                                  interval: 30,
+                                  length: 6,
+                                  algorithm: Algorithm.SHA1,
+                                  isGoogle: true,
+                                );
+                                Clipboard.setData(ClipboardData(text: cleanCode));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('TOTP_COPIED_TO_CLIPBOARD'),
+                                    backgroundColor: Color(0xFF00FBFF),
+                                    behavior: SnackBarBehavior.floating,
+                                    duration: Duration(seconds: 1),
+                                  ),
+                                );
+                              }
                             } catch (e) {
-                              return "OTP_ERR";
+                              debugPrint("Error copying TOTP: $e");
                             }
-                          }(),
-                          style: const TextStyle(
-                            color: Color(0xFF00FBFF),
-                            fontFamily: 'monospace',
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            letterSpacing: 2
+                          },
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            child: Text(
+                              () {
+                                try {
+                                  if (item.otpSeed == null || item.otpSeed!.isEmpty) return "000 000";
+                                  return OTP.generateTOTPCodeString(
+                                    item.otpSeed!,
+                                    DateTime.now().millisecondsSinceEpoch,
+                                    interval: 30,
+                                    length: 6,
+                                    algorithm: Algorithm.SHA1,
+                                    isGoogle: true,
+                                  ).replaceAllMapped(RegExp(r".{3}"), (match) => "${match.group(0)} ");
+                                } catch (e) {
+                                  return "OTP_ERR";
+                                }
+                              }(),
+                              style: const TextStyle(
+                                color: Color(0xFF00FBFF),
+                                fontFamily: 'monospace',
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                letterSpacing: 2,
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -2689,7 +2714,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     break;
                     
                   case 'view':
-                    String dec = EncryptionService.decrypt(item.password, widget.masterKey);
+                    String dec = EncryptionService.decrypt(combinedText: item.password, masterKeyBytes: widget.masterKey);
                     await DBHelper.updateLastUsed(item.id!);
                     _onUserInteraction();
                     
@@ -2723,7 +2748,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               const Text('NOTES:', 
                                       style: TextStyle(color: Colors.white54, fontSize: 10)),
                               SelectableText(
-                                EncryptionService.decrypt(item.notes!, widget.masterKey),
+                                EncryptionService.decrypt(combinedText: item.notes!, masterKeyBytes: widget.masterKey),
                                 style: const TextStyle(color: Colors.white70, fontSize: 12),
                               ),
                             ],
@@ -2740,7 +2765,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     break;
                     
                   case 'copy':
-                    String dec = EncryptionService.decrypt(item.password, widget.masterKey);
+                    String dec = EncryptionService.decrypt(combinedText: item.password, masterKeyBytes: widget.masterKey);
                     await Clipboard.setData(ClipboardData(text: dec));
                     await DBHelper.updateLastUsed(item.id!);
                     _onUserInteraction();
