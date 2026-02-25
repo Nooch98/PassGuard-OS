@@ -88,7 +88,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
+      }
       SessionManager().resetTimer();
+      
     } else if (state == AppLifecycleState.resumed) {
       SessionManager().resetTimer();
     }
@@ -3029,3 +3033,4 @@ class SecurityController {
   void pauseLocking() => shouldLockOnLeave = false;
   void resumeLocking() => shouldLockOnLeave = true;
 }
+
