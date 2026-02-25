@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/identity_model.dart';
 import '../services/db_helper.dart';
 import '../services/encryption_service.dart';
+import '../services/identity_generator_service.dart';
 
 class IdentityFormSheet extends StatefulWidget {
   final Uint8List masterKey;
@@ -55,6 +56,8 @@ class _IdentityFormSheetState extends State<IdentityFormSheet> {
   
   // Notes
   late TextEditingController _notesController;
+
+  GeneratorCountry _selectedCountry = GeneratorCountry.usa;
 
   @override
   void initState() {
@@ -108,7 +111,7 @@ class _IdentityFormSheetState extends State<IdentityFormSheet> {
       final String masterKeyAsBase64 = base64Encode(widget.masterKey);
       final Uint8List compatibleBytes = Uint8List.fromList(utf8.encode(masterKeyAsBase64));
 
-      return EncryptionService.decrypt(encrypted, compatibleBytes);
+      return EncryptionService.decrypt(combinedText: encrypted, masterKeyBytes: compatibleBytes);
     } catch (e) {
       return "Error al leer datos"; 
     }
@@ -138,6 +141,297 @@ class _IdentityFormSheetState extends State<IdentityFormSheet> {
     super.dispose();
   }
 
+  void _showGenerateMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0A0A0E),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        side: BorderSide(color: Color(0xFFFF00FF), width: 1),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (context, scrollController) => SingleChildScrollView(
+            controller: scrollController,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  
+                  const Row(
+                    children: [
+                      Icon(Icons.auto_awesome, color: Color(0xFFFF00FF), size: 20),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'GENERATE FAKE IDENTITY',
+                          style: TextStyle(
+                            color: Color(0xFFFF00FF),
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'TARGET REGION',
+                    style: TextStyle(color: Colors.white38, fontSize: 9, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: GeneratorCountry.values.map((country) {
+                      bool isSelected = _selectedCountry == country;
+                      return GestureDetector(
+                        onTap: () {
+                          setModalState(() => _selectedCountry = country);
+                          setState(() => _selectedCountry = country);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isSelected ? const Color(0xFFFF00FF).withOpacity(0.2) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: isSelected ? const Color(0xFFFF00FF) : Colors.white10,
+                            ),
+                          ),
+                          child: Text(
+                            country.name.toUpperCase(),
+                            style: TextStyle(
+                              color: isSelected ? Colors.white : Colors.white38,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 8),
+                  const Divider(color: Colors.white10, height: 24),
+
+                  _buildCompactGenerateOption(
+                    icon: Icons.person,
+                    title: 'Personal Info',
+                    color: const Color(0xFF00FBFF),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _generatePersonIdentity();
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _buildCompactGenerateOption(
+                    icon: Icons.credit_card,
+                    title: 'Credit Card',
+                    color: const Color(0xFFFF00FF),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _generateCreditCard();
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _buildCompactGenerateOption(
+                    icon: Icons.badge,
+                    title: 'National ID / License',
+                    color: const Color(0xFF00FF00),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _generateLicense();
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _buildCompactGenerateOption(
+                    icon: Icons.flight,
+                    title: 'Passport',
+                    color: const Color(0xFFFFFF00),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _generatePassport();
+                    },
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.warning_amber, color: Colors.orange, size: 16),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Fake data for privacy testing only. Not for illegal use.',
+                            style: TextStyle(color: Colors.orange, fontSize: 9),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactGenerateOption({
+    required IconData icon,
+    required String title,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF16161D),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            Icon(Icons.arrow_forward_ios, color: color.withOpacity(0.5), size: 14),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _generatePersonIdentity() {
+    final data = IdentityGeneratorService.generatePersonIdentity(country: _selectedCountry);
+    
+    setState(() {
+      _selectedType = 'PERSON';
+      _titleController.text = 'Fake Identity - ${data['firstName']} (${_selectedCountry.name.toUpperCase()})';
+      _fullNameController.text = data['fullName']!;
+      _emailController.text = data['email']!;
+      _phoneController.text = data['phone']!;
+      _dobController.text = data['dateOfBirth']!;
+      _address1Controller.text = data['address']!;
+      _cityController.text = data['city']!;
+      _stateController.text = data['state']!;
+      _zipController.text = data['zipCode']!;
+      _countryController.text = data['country']!;
+    });
+    
+    _showSuccessSnackBar('✨ FAKE_IDENTITY_GENERATED [${_selectedCountry.name.toUpperCase()}]');
+  }
+
+  void _generateCreditCard() {
+    final data = IdentityGeneratorService.generateCreditCard();
+    
+    setState(() {
+      _selectedType = 'CARD';
+      _titleController.text = 'Fake ${data['cardType']} Card';
+      _cardNumberController.text = data['cardNumber']!;
+      _cardHolderController.text = data['cardHolder']!;
+      _expirationController.text = data['expiration']!;
+      _cvvController.text = data['cvv']!;
+      _cardType = data['cardType']!;
+    });
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('💳 FAKE_CARD_GENERATED (Non-functional)'),
+        backgroundColor: Color(0xFFFF00FF),
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _generateLicense() {
+    final data = IdentityGeneratorService.generateLicense(country: _selectedCountry);
+    
+    setState(() {
+      _selectedType = 'LICENSE';
+      _titleController.text = 'Fake License - ${_selectedCountry.name.toUpperCase()}';
+      _documentNumberController.text = data['documentNumber']!;
+      _issuingAuthorityController.text = data['issuingAuthority']!;
+      _issueDateController.text = data['issueDate']!;
+      _expiryDateController.text = data['expiryDate']!;
+    });
+    
+    _showSuccessSnackBar('🪪 DOCUMENT_GENERATED (${data['issuingAuthority']})');
+  }
+
+  void _generatePassport() {
+    final data = IdentityGeneratorService.generatePassport(country: _selectedCountry);
+    
+    setState(() {
+      _selectedType = 'PASSPORT';
+      _titleController.text = 'Fake Passport - ${_selectedCountry.name.toUpperCase()}';
+      _documentNumberController.text = data['documentNumber']!;
+      _issuingAuthorityController.text = data['issuingAuthority']!;
+      _issueDateController.text = data['issueDate']!;
+      _expiryDateController.text = data['expiryDate']!;
+    });
+    
+    _showSuccessSnackBar('🛂 PASSPORT_GENERATED [${_selectedCountry.name.toUpperCase()}]');
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFFFF00FF),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -154,21 +448,28 @@ class _IdentityFormSheetState extends State<IdentityFormSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    widget.existingIdentity == null 
-                      ? '> NEW_IDENTITY' 
-                      : '> EDIT_IDENTITY',
-                    style: const TextStyle(
-                      color: Color(0xFF00FBFF),
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
+                  Expanded(
+                    child: Text(
+                      widget.existingIdentity == null 
+                        ? '> NEW_IDENTITY' 
+                        : '> EDIT_IDENTITY',
+                      style: const TextStyle(
+                        color: Color(0xFF00FBFF),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace',
+                      ),
                     ),
                   ),
+                  if (widget.existingIdentity == null)
+                    IconButton(
+                      icon: const Icon(Icons.auto_awesome, color: Color(0xFFFF00FF)),
+                      tooltip: "GENERATE_FAKE_IDENTITY",
+                      onPressed: _showGenerateMenu,
+                    ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white54),
                     onPressed: () => Navigator.pop(context),
@@ -178,7 +479,6 @@ class _IdentityFormSheetState extends State<IdentityFormSheet> {
               const Divider(color: Colors.white10),
               const SizedBox(height: 16),
 
-              // Title
               TextFormField(
                 controller: _titleController,
                 style: const TextStyle(color: Colors.white),
@@ -195,7 +495,6 @@ class _IdentityFormSheetState extends State<IdentityFormSheet> {
               ),
               const SizedBox(height: 16),
 
-              // Type selector
               const Text(
                 'TYPE',
                 style: TextStyle(color: Colors.white54, fontSize: 12),
@@ -213,13 +512,11 @@ class _IdentityFormSheetState extends State<IdentityFormSheet> {
               ),
               const SizedBox(height: 24),
 
-              // Dynamic fields based on type
               if (_selectedType == 'PERSON') ..._buildPersonFields(),
               if (_selectedType == 'CARD') ..._buildCardFields(),
               if (_selectedType == 'LICENSE' || _selectedType == 'PASSPORT') 
                 ..._buildDocumentFields(),
-
-              // Common: Notes
+              
               const SizedBox(height: 16),
               TextFormField(
                 controller: _notesController,
@@ -231,8 +528,6 @@ class _IdentityFormSheetState extends State<IdentityFormSheet> {
               ),
 
               const SizedBox(height: 24),
-
-              // Save button
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
