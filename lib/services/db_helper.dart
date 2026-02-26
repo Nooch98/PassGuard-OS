@@ -23,7 +23,7 @@ class DBHelper {
     
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -84,6 +84,9 @@ class DBHelper {
             )
           ''');
         }
+        if (oldVersion < 4) {
+          await db.execute('ALTER TABLE accounts ADD COLUMN password_fp TEXT');
+        }
       },
     );
   }
@@ -95,6 +98,7 @@ class DBHelper {
         platform TEXT NOT NULL,
         username TEXT,
         password TEXT NOT NULL,
+        password_fp TEXT,
         otp_seed TEXT,
         category TEXT DEFAULT 'PERSONAL',
         created_at TEXT,
