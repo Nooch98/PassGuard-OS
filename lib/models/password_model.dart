@@ -11,6 +11,7 @@ class PasswordModel {
   final String? notes;
   final bool isFavorite;
   final List<String>? passwordHistory;
+  final String? passwordFingerprint;
 
   PasswordModel({
     this.id,
@@ -25,6 +26,7 @@ class PasswordModel {
     this.notes,
     this.isFavorite = false,
     this.passwordHistory,
+    this.passwordFingerprint,
   });
 
   String get faviconUrl {
@@ -81,6 +83,7 @@ class PasswordModel {
       'platform': platform,
       'username': username,
       'password': password,
+      'password_fp': passwordFingerprint,
       'otp_seed': otpSeed,
       'category': category,
       'created_at': (createdAt ?? DateTime.now()).toIso8601String(),
@@ -98,6 +101,7 @@ class PasswordModel {
       platform: map['platform'] ?? '',
       username: map['username'] ?? '',
       password: map['password'] ?? '',
+      passwordFingerprint: map['password_fp'],
       otpSeed: map['otp_seed'],
       category: map['category'] ?? 'PERSONAL',
       createdAt: map['created_at'] != null 
