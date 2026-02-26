@@ -1,16 +1,18 @@
 import '../models/password_model.dart';
-import 'password_generator_service.dart';
 
 class SecurityAnalysisResult {
   final int totalPasswords;
   final int weakPasswords;
   final int reusedPasswords;
   final int twoFactorEnabled;
-  final int oldPasswords; // > 90 days
+  final int oldPasswords;
   final double overallScore;
+
   final Map<String, int> reuseMap;
+
   final List<PasswordModel> weakPasswordsList;
   final List<PasswordModel> oldPasswordsList;
+  final List<PasswordModel> reusedPasswordsList;
 
   SecurityAnalysisResult({
     required this.totalPasswords,
@@ -22,6 +24,7 @@ class SecurityAnalysisResult {
     required this.reuseMap,
     required this.weakPasswordsList,
     required this.oldPasswordsList,
+    required this.reusedPasswordsList,
   });
 }
 
@@ -38,54 +41,65 @@ class SecurityAnalyzer {
         reuseMap: {},
         weakPasswordsList: [],
         oldPasswordsList: [],
+        reusedPasswordsList: [],
       );
     }
 
     int weakCount = 0;
     int twoFactorCount = 0;
     int oldCount = 0;
-    
-    Map<String, int> passwordOccurrences = {};
-    List<PasswordModel> weakList = [];
-    List<PasswordModel> oldList = [];
-    
+
+    final Map<String, int> fpOccurrences = {};
+    final Map<String, List<PasswordModel>> fpGroups = {};
+
+    final List<PasswordModel> weakList = [];
+    final List<PasswordModel> oldList = [];
+
     final now = DateTime.now();
-    
-    for (var password in passwords) {
-      if (password.otpSeed != null && password.otpSeed!.isNotEmpty) {
+
+    for (final p in passwords) {
+      if (p.otpSeed != null && p.otpSeed!.isNotEmpty) {
         twoFactorCount++;
       }
 
-      passwordOccurrences[password.password] = 
-        (passwordOccurrences[password.password] ?? 0) + 1;
-
-      if (password.password.length < 44) {
+      if (p.password.length < 44) {
         weakCount++;
-        weakList.add(password);
+        weakList.add(p);
       }
 
-      if (password.createdAt != null) {
-        final age = now.difference(password.createdAt!);
+      if (p.createdAt != null) {
+        final age = now.difference(p.createdAt!);
         if (age.inDays > 90) {
           oldCount++;
-          oldList.add(password);
+          oldList.add(p);
         }
       }
+
+      final fp = p.passwordFingerprint;
+      if (fp == null || fp.isEmpty) continue;
+
+      fpOccurrences[fp] = (fpOccurrences[fp] ?? 0) + 1;
+      (fpGroups[fp] ??= []).add(p);
     }
-    
+
     int reuseCount = 0;
-    passwordOccurrences.forEach((key, count) {
-      if (count > 1) reuseCount += count;
+    final List<PasswordModel> reusedList = [];
+
+    fpGroups.forEach((_, list) {
+      if (list.length > 1) {
+        reuseCount += list.length;
+        reusedList.addAll(list);
+      }
     });
 
-    double score = _calculateScore(
+    final score = _calculateScore(
       total: passwords.length,
       weak: weakCount,
       reused: reuseCount,
       twoFactor: twoFactorCount,
       old: oldCount,
     );
-    
+
     return SecurityAnalysisResult(
       totalPasswords: passwords.length,
       weakPasswords: weakCount,
@@ -93,9 +107,10 @@ class SecurityAnalyzer {
       twoFactorEnabled: twoFactorCount,
       oldPasswords: oldCount,
       overallScore: score,
-      reuseMap: passwordOccurrences,
+      reuseMap: fpOccurrences,
       weakPasswordsList: weakList,
       oldPasswordsList: oldList,
+      reusedPasswordsList: reusedList,
     );
   }
 
@@ -106,6 +121,8 @@ class SecurityAnalyzer {
     required int twoFactor,
     required int old,
   }) {
+    if (total <= 0) return 100;
+
     double score = 100;
     score -= (weak / total * 30).clamp(0, 30);
     score -= (reused / total * 30).clamp(0, 30);
