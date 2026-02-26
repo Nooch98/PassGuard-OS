@@ -21,6 +21,7 @@ import '../services/db_helper.dart';
 import '../services/encryption_service.dart';
 import '../services/file_service.dart';
 import '../services/filevaultscreen.dart';
+import '../services/password_fingerprint.dart';
 import '../services/sync_service.dart';
 import '../services/session_manager.dart';
 import '../services/security_analyzer.dart';
@@ -384,7 +385,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _showSecurityAuditDetailed() {
     final result = SecurityAnalyzer.analyze(_passwords);
-    
+    final total = result.totalPasswords == 0 ? 1 : result.totalPasswords;
+    final twoFaPct = (result.twoFactorEnabled / total) * 100;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -394,28 +397,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           borderRadius: BorderRadius.circular(8),
         ),
         title: Text(
-          '> DETAILED_SECURITY_AUDIT',
-          style: TextStyle(color: _getHealthColor(result.overallScore), fontFamily: 'monospace', fontSize: 16),
+          '> SECURITY_DASHBOARD',
+          style: TextStyle(
+            color: _getHealthColor(result.overallScore),
+            fontFamily: 'monospace',
+            fontSize: 16,
+          ),
         ),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildAuditRow('TOTAL_ACCOUNTS', result.totalPasswords.toString(), Colors.white),
-              _buildAuditRow('2FA_PROTECTED', '${result.twoFactorEnabled}', const Color(0xFF00FBFF)),
-              _buildAuditRow('WEAK_PASSWORDS', '${result.weakPasswords}', 
-                             result.weakPasswords > 0 ? Colors.red : Colors.green),
-              _buildAuditRow('REUSED_PASSWORDS', '${result.reusedPasswords}', 
-                             result.reusedPasswords > 0 ? Colors.red : Colors.green),
-              _buildAuditRow('OLD_PASSWORDS_90D+', '${result.oldPasswords}', 
-                             result.oldPasswords > 0 ? Colors.orange : Colors.green),
-              
-              const SizedBox(height: 25),
+              Row(
+                children: [
+                  Expanded(
+                    child: _metricChip(
+                      label: 'ACCOUNTS',
+                      value: '${result.totalPasswords}',
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _metricChip(
+                      label: '2FA',
+                      value: '${twoFaPct.toStringAsFixed(0)}%',
+                      color: const Color(0xFF00FBFF),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
               const Text('OVERALL_SECURITY:', style: TextStyle(color: Colors.white54, fontSize: 11)),
               const SizedBox(height: 10),
               LinearProgressIndicator(
-                value: result.overallScore / 100,
+                value: (result.overallScore / 100).clamp(0, 1),
                 backgroundColor: Colors.white10,
                 color: _getHealthColor(result.overallScore),
                 minHeight: 12,
@@ -431,8 +450,69 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                 ),
               ),
-              
-              const SizedBox(height: 20),
+
+              const SizedBox(height: 16),
+
+              _riskCard(
+                title: 'WEAK_PASSWORDS',
+                value: result.weakPasswords,
+                color: result.weakPasswords > 0 ? Colors.red : Colors.green,
+                hint: 'Change these first.',
+                actionLabel: 'FIX',
+                onAction: result.weakPasswords > 0
+                    ? () {
+                        Navigator.pop(context);
+                        _showAuditListDialog(
+                          title: 'WEAK_ACCOUNTS',
+                          color: Colors.red,
+                          items: result.weakPasswordsList.map((e) => e.platform).toList(),
+                        );
+                      }
+                    : null,
+              ),
+
+              const SizedBox(height: 10),
+
+              _riskCard(
+                title: 'REUSED_PASSWORDS',
+                value: result.reusedPasswords,
+                color: result.reusedPasswords > 0 ? Colors.red : Colors.green,
+                hint: 'One leak can break multiple accounts.',
+                actionLabel: 'FIX',
+                onAction: result.reusedPasswords > 0
+                    ? () {
+                        Navigator.pop(context);
+                        _showAuditListDialog(
+                          title: 'REUSED_ACCOUNTS',
+                          color: Colors.red,
+                          items: result.reusedPasswordsList.map((e) => e.platform).toList(),
+                        );
+                      }
+                    : null,
+              ),
+
+              const SizedBox(height: 10),
+
+              _riskCard(
+                title: 'OLD_PASSWORDS_90D+',
+                value: result.oldPasswords,
+                color: result.oldPasswords > 0 ? Colors.orange : Colors.green,
+                hint: 'Review sensitive accounts regularly.',
+                actionLabel: 'VIEW',
+                onAction: result.oldPasswords > 0
+                    ? () {
+                        Navigator.pop(context);
+                        _showAuditListDialog(
+                          title: 'OLD_ACCOUNTS',
+                          color: Colors.orange,
+                          items: result.oldPasswordsList.map((e) => e.platform).toList(),
+                        );
+                      }
+                    : null,
+              ),
+
+              const SizedBox(height: 18),
+
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -442,40 +522,180 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
                 child: Text(
                   SecurityAnalyzer.getRecommendation(result),
-                  style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 11, fontStyle: FontStyle.italic),
+                  style: const TextStyle(
+                    color: Color(0xFF00FBFF),
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ),
-              
-              if (result.weakPasswordsList.isNotEmpty) ...[
-                const SizedBox(height: 20),
-                const Text('WEAK_ACCOUNTS:', style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                ...result.weakPasswordsList.take(5).map((p) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text('• ${p.platform}', style: const TextStyle(color: Colors.white70, fontSize: 10)),
-                )),
-              ],
-              
-              if (result.oldPasswordsList.isNotEmpty) ...[
-                const SizedBox(height: 15),
-                const Text('OLD_ACCOUNTS:', style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                ...result.oldPasswordsList.take(5).map((p) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text('• ${p.platform}', style: const TextStyle(color: Colors.white70, fontSize: 10)),
-                )),
-              ],
+
+              const SizedBox(height: 14),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF00FBFF),
+                        side: const BorderSide(color: Color(0xFF00FBFF)),
+                      ),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _openPasswordGenerator();
+                      },
+                      child: const Text('GENERATE', style: TextStyle(fontSize: 11)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white24),
+                      ),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _showSecurityAuditDetailed();
+                      },
+                      child: const Text('REFRESH', style: TextStyle(fontSize: 11)),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('ACKNOWLEDGE', style: TextStyle(color: _getHealthColor(result.overallScore))),
+            child: Text(
+              'CLOSE',
+              style: TextStyle(color: _getHealthColor(result.overallScore)),
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _metricChip({
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _riskCard({
+    required String title,
+    required int value,
+    required Color color,
+    required String hint,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    final isOk = value == 0;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(isOk ? 0.4 : 0.9)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Text(
+                  '$value',
+                  style: TextStyle(color: color, fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                ),
+                const SizedBox(height: 4),
+                Text(hint, style: const TextStyle(color: Colors.white54, fontSize: 10)),
+              ],
+            ),
+          ),
+          if (onAction != null && actionLabel != null) ...[
+            const SizedBox(width: 10),
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: color,
+                side: BorderSide(color: color),
+              ),
+              onPressed: onAction,
+              child: Text(actionLabel, style: const TextStyle(fontSize: 11)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showAuditListDialog({
+    required String title,
+    required Color color,
+    required List<String> items,
+  }) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF0A0A0E),
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: color, width: 2),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        title: Text('> $title', style: TextStyle(color: color, fontFamily: 'monospace')),
+        content: SizedBox(
+          width: 420,
+          child: items.isEmpty
+              ? const Text('NO_ITEMS', style: TextStyle(color: Colors.white54))
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: items.length,
+                  itemBuilder: (_, i) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text('• ${items[i]}', style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                  ),
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('CLOSE', style: TextStyle(color: color)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openPasswordGenerator() {
+    showDialog(
+      context: context,
+      builder: (_) => const PasswordGeneratorDialog(),
     );
   }
 
@@ -1520,29 +1740,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       final String masterKeyAsString = String.fromCharCodes(widget.masterKey);
 
                       final encryptedPass = EncryptionService.encrypt(passC.text, masterKeyAsString);
-                      final encryptedNotes = notesC.text.isNotEmpty 
-                        ? EncryptionService.encrypt(notesC.text, masterKeyAsString)
-                        : null;
+                      final encryptedNotes = notesC.text.isNotEmpty
+                          ? EncryptionService.encrypt(notesC.text, masterKeyAsString)
+                          : null;
+
+                      final pepper = derivePepper(widget.masterKey);
+                      final passwordFp = passwordFingerprintBase64(
+                        passwordPlaintext: passC.text,
+                        pepper: pepper,
+                      );
 
                       if (existingPassword == null) {
                         // Create new
-                        await db.insert('accounts', PasswordModel(
-                          platform: platformC.text,
-                          username: userC.text,
-                          password: encryptedPass,
-                          category: localSelectedCategory,
-                          notes: encryptedNotes,
-                          createdAt: DateTime.now(),
-                          updatedAt: DateTime.now(),
-                        ).toMap());
+                        await db.insert(
+                          'accounts',
+                          PasswordModel(
+                            platform: platformC.text,
+                            username: userC.text,
+                            password: encryptedPass,
+                            passwordFingerprint: passwordFp,
+                            category: localSelectedCategory,
+                            notes: encryptedNotes,
+                            createdAt: DateTime.now(),
+                            updatedAt: DateTime.now(),
+                          ).toMap(),
+                        );
                       } else {
-                        // Update existing
                         List<String>? history = existingPassword.passwordHistory ?? [];
                         if (encryptedPass != existingPassword.password) {
                           history.add(existingPassword.password);
-                          if (history.length > 5) history.removeAt(0); // Keep last 5
+                          if (history.length > 5) history.removeAt(0);
                         }
-                        
+
                         await db.update(
                           'accounts',
                           PasswordModel(
@@ -1550,6 +1779,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             platform: platformC.text,
                             username: userC.text,
                             password: encryptedPass,
+                            passwordFingerprint: passwordFp,
                             category: localSelectedCategory,
                             notes: encryptedNotes,
                             createdAt: existingPassword.createdAt,
@@ -1566,9 +1796,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       if (mounted) {
                         Navigator.pop(context);
                         _loadPasswords();
-                        _showSuccessSnackBar(
-                          existingPassword == null ? "NODE_CREATED" : "NODE_UPDATED"
-                        );
+                        _showSuccessSnackBar(existingPassword == null ? "NODE_CREATED" : "NODE_UPDATED");
                       }
                     }
                   },
@@ -2733,12 +2961,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             where: 'id = ?',
                             whereArgs: [item.id],
                           );
-                          debugPrint(
-                            "SILENT_UPGRADE: Password for ${item.platform} migrated to V4",
-                          );
+                          debugPrint("SILENT_UPGRADE: Password for ${item.platform} migrated to V4");
                         }();
                       },
                     );
+
+                    if (item.passwordFingerprint == null || item.passwordFingerprint!.isEmpty) {
+                      final pepper = derivePepper(widget.masterKey);
+                      final fp = passwordFingerprintBase64(
+                        passwordPlaintext: dec,
+                        pepper: pepper,
+                      );
+
+                      () async {
+                        final db = await DBHelper.database;
+                        await db.update(
+                          'accounts',
+                          {
+                            'password_fp': fp,
+                            'updated_at': DateTime.now().toIso8601String(),
+                          },
+                          where: 'id = ?',
+                          whereArgs: [item.id],
+                        );
+                        debugPrint("PASSWORD_FP_UPGRADE: ${item.platform} updated");
+                      }();
+                    }
 
                     String? decryptedNotes;
                     if (item.notes != null && item.notes!.isNotEmpty) {
@@ -2757,9 +3005,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               where: 'id = ?',
                               whereArgs: [item.id],
                             );
-                            debugPrint(
-                              "SILENT_UPGRADE: Notes for ${item.platform} migrated to V4",
-                            );
+                            debugPrint("SILENT_UPGRADE: Notes for ${item.platform} migrated to V4");
                           }();
                         },
                       );
