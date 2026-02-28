@@ -32,11 +32,15 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
   bool _canCheckBio = false;
   int _failedAttempts = 0;
   bool _isLocked = false;
+  bool _bioBusy = false;
+
+  late final SecurityController _security;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _security = SecurityController();
     _checkStatus();
     _checkBiometrics();
   }
@@ -68,10 +72,8 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final security = SecurityController();
-
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      if (security.shouldLockOnLeave) {
+      if (_security.shouldLockOnLeave) {
         _lockVault();
       }
     }
@@ -82,14 +84,12 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
       for (int i = 0; i < masterKeyMem!.length; i++) {
         masterKeyMem![i] = 0;
       }
-      setState(() {
-        masterKeyMem = null;
-        _inputBuffer = "";
-      });
-      _passController.clear();
-      _confirmController.clear();
-      debugPrint("SYSTEM_LOG: RAM_SECURITY_PURGE_COMPLETED");
     }
+    masterKeyMem = null;
+    _inputBuffer = '';
+    _passController.clear();
+    _confirmController.clear();
+    if (mounted) setState(() {});
   }
 
   _checkStatus() async {
@@ -98,36 +98,58 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
   }
 
   Future<void> _handleBiometricAuth({required bool triggerPanic}) async {
+    if (_bioBusy) return;
+    _bioBusy = true;
+
     try {
-      bool canCheck = await _localAuth.canCheckBiometrics || await _localAuth.isDeviceSupported();
-      if (!canCheck) return;
+      final bool deviceSupported = await _localAuth.isDeviceSupported();
+      final bool canCheckBiometrics = await _localAuth.canCheckBiometrics;
+      if (!deviceSupported && !canCheckBiometrics) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("BIO_NOT_AVAILABLE")),
+        );
+        return;
+      }
 
       final bool didAuthenticate = await _localAuth.authenticate(
         localizedReason: triggerPanic
             ? 'SYSTEM_INTEGRITY_CHECK'
             : 'DECRYPTING_VAULT_RESOURCES',
+        biometricOnly: true,
       );
 
-      if (didAuthenticate) {
-        if (triggerPanic) {
-          await _executePanicProtocol();
-        } else {
-          String? savedKey = await AuthService.getMasterKeyForBio();
-          if (savedKey != null) {
-            setState(() {
-              masterKeyMem = Uint8List.fromList(utf8.encode(savedKey));
-            });
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("BIO_UNSYNCED: LOGIN_MANUALLY_ONCE"))
-            );
-          }
-        }
+      if (!mounted) return;
+
+      if (!didAuthenticate) {
+        HapticFeedback.selectionClick();
+        return;
+      }
+
+      if (triggerPanic) {
+        await _executePanicProtocol();
+        return;
+      }
+
+      final String? savedKey = await AuthService.getMasterKeyForBio();
+      if (!mounted) return;
+
+      if (savedKey != null && savedKey.isNotEmpty) {
+        setState(() {
+          masterKeyMem = Uint8List.fromList(utf8.encode(savedKey));
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("BIO_UNSYNCED: LOGIN_MANUALLY_ONCE")),
+        );
       }
     } on PlatformException catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("BIO_ERROR: ${e.code}"))
+        SnackBar(content: Text("BIO_ERROR: ${e.code}")),
       );
+    } finally {
+      _bioBusy = false;
     }
   }
 
@@ -283,8 +305,10 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
       final db = await DBHelper.database;
       await db.delete('accounts');
       await db.delete('recovery_codes');
-      await db.delete('encrypted_files');
+      await db.delete('file_vault');
+      await db.execute('VACUUM');
       await AuthService.clearAllData();
+      await DBHelper.close();
       _lockVault();
       _checkStatus();
 
@@ -414,7 +438,10 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
                       focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF00FBFF))),
                     ),
                     onChanged: (val) => setState(() => _inputBuffer = val),
-                    onSubmitted: (_) => _handleAuth(),
+                    onSubmitted: (val) {
+                      setState(() => _inputBuffer = val);
+                      _handleAuth();
+                    },
                   ),
 
                 const SizedBox(height: 20),
@@ -430,8 +457,9 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
                       ),
                       const SizedBox(width: 50),
                       IconButton(
-                        icon: Icon(Icons.gpp_maybe, color: Colors.white.withOpacity(0.02), size: 50),
-                        onPressed: () => _handleBiometricAuth(triggerPanic: true),
+                        icon: const Icon(Icons.gpp_maybe, color: Colors.white24, size: 50),
+                        onPressed: null,
+                        onLongPress: () => _handleBiometricAuth(triggerPanic: true),
                       ),
                     ],
                   ),
@@ -445,4 +473,3 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     );
   }
 }
-
