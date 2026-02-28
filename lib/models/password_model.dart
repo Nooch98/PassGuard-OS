@@ -12,6 +12,7 @@ class PasswordModel {
   final bool isFavorite;
   final List<String>? passwordHistory;
   final String? passwordFingerprint;
+  final String? otpMeta;
 
   PasswordModel({
     this.id,
@@ -27,6 +28,7 @@ class PasswordModel {
     this.isFavorite = false,
     this.passwordHistory,
     this.passwordFingerprint,
+    this.otpMeta,
   });
 
   String get faviconUrl {
@@ -92,6 +94,8 @@ class PasswordModel {
       'notes': notes,
       'is_favorite': isFavorite ? 1 : 0,
       'password_history': passwordHistory?.join('|||'),
+      'otp_meta': otpMeta,
+      
     };
   }
 
@@ -118,6 +122,8 @@ class PasswordModel {
       passwordHistory: map['password_history'] != null
         ? (map['password_history'] as String).split('|||')
         : null,
+      
+      otpMeta: map['otp_meta'],
     );
   }
 
