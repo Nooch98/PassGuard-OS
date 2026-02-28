@@ -44,7 +44,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _isSearching = false;
   final _searchController = TextEditingController();
   List<PasswordModel> _filteredPasswords = [];
-  Timer? _otpRefreshTimer;
+  Timer? _totpTimer;
+  int _totpNowMs = DateTime.now().millisecondsSinceEpoch;
   double _currentHealthScore = 0;
   int _selectedIndex = 0;
 
@@ -53,6 +54,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   String? _filterCategory;
   bool _showFavoritesOnly = false;
+  final Set<int> _otpUpgraded = {};
+
+  final Map<int, String?> _totpSecretCache = {};
 
   final GlobalKey<IdentitiesVaultScreenState> _identitiesKey = GlobalKey<IdentitiesVaultScreenState>();
 
@@ -69,8 +73,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       timeout: Duration(minutes: 5),
     );
     
-    _otpRefreshTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) setState(() {});
+    _totpTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      setState(() => _totpNowMs = DateTime.now().millisecondsSinceEpoch);
     });
     
     _applyScreenshotProtection();
@@ -79,7 +83,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _otpRefreshTimer?.cancel();
+    _totpSecretCache.clear();
+    _totpTimer?.cancel();
     _searchController.dispose();
     _clipboardTimer?.cancel();
     SessionManager().dispose();
@@ -1845,7 +1850,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       final uri = Uri.parse(code);
                       final String? secret = uri.queryParameters['secret'];
 
-                      if (secret != null) {
+                      if (secret != null && secret.isNotEmpty) {
                         Navigator.pop(context);
                         _showAssignOTPDialog(secret);
                         return;
@@ -1881,13 +1886,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               title: Text(_passwords[i].platform, style: const TextStyle(color: Colors.white)),
               subtitle: Text(_passwords[i].username, style: const TextStyle(color: Colors.white54, fontSize: 10)),
               onTap: () async {
-                String cleanSecret = secret.trim().toUpperCase().replaceAll(RegExp(r'[^A-Z2-7]'), '');
+                final cleanSecret = _normalizeTotpSecret(secret);
+
+                if (!_looksLikeBase32Secret(cleanSecret)) {
+                  if (mounted) {
+                    Navigator.pop(context);
+                    _showErrorSnackBar("ERROR: INVALID_2FA_SECRET");
+                  }
+                  return;
+                }
+
+                final masterKeyString = utf8.decode(widget.masterKey);
+                final encryptedSeed = EncryptionService.encrypt(cleanSecret, masterKeyString);
+
                 final db = await DBHelper.database;
                 await db.update(
-                    'accounts',
-                    {'otp_seed': cleanSecret},
-                    where: 'id = ?',
-                    whereArgs: [_passwords[i].id]
+                  'accounts',
+                  {'otp_seed': encryptedSeed, 'updated_at': DateTime.now().toIso8601String()},
+                  where: 'id = ?',
+                  whereArgs: [_passwords[i].id],
                 );
 
                 if (mounted) {
@@ -1901,6 +1918,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  String _normalizeTotpSecret(String input) {
+    var s = input.trim();
+
+    if (s.startsWith('otpauth://')) {
+      final uri = Uri.tryParse(s);
+      final secret = uri?.queryParameters['secret'];
+      if (secret != null && secret.isNotEmpty) s = secret;
+    }
+
+    s = s.toUpperCase().replaceAll(RegExp(r'[^A-Z2-7=]'), '');
+    s = s.replaceAll('=', '');
+
+    return s;
+  }
+
+  bool _looksLikeBase32Secret(String s) {
+    return RegExp(r'^[A-Z2-7]+$').hasMatch(s) && s.length >= 16;
   }
 
   Widget _buildTerminalButton({
@@ -2688,6 +2724,42 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  bool _isEncryptedSeed(String s) {
+    return s.startsWith('v3.') || s.startsWith('v4.') || s.startsWith('v2.') || s.startsWith('v1.');
+  }
+
+  String? _getTotpSecretPlainCached(PasswordModel item) {
+    final id = item.id;
+    if (id == null) return null;
+
+    if (_totpSecretCache.containsKey(id)) return _totpSecretCache[id];
+
+    final raw = item.otpSeed;
+    if (raw == null || raw.isEmpty) {
+      _totpSecretCache[id] = null;
+      return null;
+    }
+
+    String? plain;
+
+    // ya cifrado (vX.)
+    final isEnc = raw.startsWith('v4.') || raw.startsWith('v3.') || raw.startsWith('v2.') || raw.startsWith('v1.');
+    if (isEnc) {
+      final dec = EncryptionService.decrypt(combinedText: raw, masterKeyBytes: widget.masterKey);
+      if (dec.isNotEmpty && !dec.startsWith('ERROR:')) {
+        plain = _normalizeTotpSecret(dec);
+        if (!_looksLikeBase32Secret(plain)) plain = null;
+      }
+    } else {
+      // legacy en claro
+      final norm = _normalizeTotpSecret(raw);
+      plain = _looksLikeBase32Secret(norm) ? norm : null;
+    }
+
+    _totpSecretCache[id] = plain;
+    return plain;
+  }
+
   Widget _buildPasswordList() {
     if (_passwords.isEmpty) {
       return Center(
@@ -2864,25 +2936,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         InkWell(
                           onTap: () {
                             try {
-                              if (item.otpSeed != null && item.otpSeed!.isNotEmpty) {
-                                final cleanCode = OTP.generateTOTPCodeString(
-                                  item.otpSeed!,
-                                  DateTime.now().millisecondsSinceEpoch,
-                                  interval: 30,
-                                  length: 6,
-                                  algorithm: Algorithm.SHA1,
-                                  isGoogle: true,
-                                );
-                                Clipboard.setData(ClipboardData(text: cleanCode));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('TOTP_COPIED_TO_CLIPBOARD'),
-                                    backgroundColor: Color(0xFF00FBFF),
-                                    behavior: SnackBarBehavior.floating,
-                                    duration: Duration(seconds: 1),
-                                  ),
-                                );
-                              }
+                              final secretPlain = _getTotpSecretPlainCached(item);
+                              if (secretPlain == null) return;
+
+                              final code = OTP.generateTOTPCodeString(
+                                secretPlain,
+                                _totpNowMs,
+                                interval: 30,
+                                length: 6,
+                                algorithm: Algorithm.SHA1,
+                                isGoogle: true,
+                              );
+
+                              Clipboard.setData(ClipboardData(text: code));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('TOTP_COPIED_TO_CLIPBOARD'),
+                                  backgroundColor: Color(0xFF00FBFF),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: Duration(seconds: 1),
+                                ),
+                              );
                             } catch (e) {
                               debugPrint("Error copying TOTP: $e");
                             }
@@ -2892,19 +2966,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                             child: Text(
                               () {
-                                try {
-                                  if (item.otpSeed == null || item.otpSeed!.isEmpty) return "000 000";
-                                  return OTP.generateTOTPCodeString(
-                                    item.otpSeed!,
-                                    DateTime.now().millisecondsSinceEpoch,
-                                    interval: 30,
-                                    length: 6,
-                                    algorithm: Algorithm.SHA1,
-                                    isGoogle: true,
-                                  ).replaceAllMapped(RegExp(r".{3}"), (match) => "${match.group(0)} ");
-                                } catch (e) {
-                                  return "OTP_ERR";
-                                }
+                                final secretPlain = _getTotpSecretPlainCached(item);
+                                if (secretPlain == null) return "OTP_ERR";
+
+                                final code = OTP.generateTOTPCodeString(
+                                  secretPlain,
+                                  _totpNowMs,
+                                  interval: 30,
+                                  length: 6,
+                                  algorithm: Algorithm.SHA1,
+                                  isGoogle: true,
+                                );
+
+                                return code.replaceAllMapped(RegExp(r".{3}"), (m) => "${m.group(0)} ");
                               }(),
                               style: const TextStyle(
                                 color: Color(0xFF00FBFF),
