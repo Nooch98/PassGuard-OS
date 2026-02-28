@@ -23,7 +23,7 @@ class DBHelper {
     
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -87,6 +87,9 @@ class DBHelper {
         if (oldVersion < 4) {
           await db.execute('ALTER TABLE accounts ADD COLUMN password_fp TEXT');
         }
+        if (oldVersion < 5) {
+          await db.execute('ALTER TABLE accounts ADD COLUMN otp_meta TEXT');
+        }
       },
     );
   }
@@ -106,7 +109,8 @@ class DBHelper {
         last_used TEXT,
         notes TEXT,
         is_favorite INTEGER DEFAULT 0,
-        password_history TEXT
+        password_history TEXT,
+        otp_meta TEXT,
       )
     ''');
 
