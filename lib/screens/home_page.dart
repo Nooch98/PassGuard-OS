@@ -27,6 +27,7 @@ import '../services/session_manager.dart';
 import '../services/security_analyzer.dart';
 import '../models/password_model.dart';
 import '../services/SteganographyService.dart';
+import '../services/topt_meta.dart';
 import '../widgets/password_generator_dialog.dart';
 
 Timer? _clipboardTimer;
@@ -1852,7 +1853,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
                       if (secret != null && secret.isNotEmpty) {
                         Navigator.pop(context);
-                        _showAssignOTPDialog(secret);
+                        _showAssignOTPDialog(code);
                         return;
                       }
                     }
@@ -1866,7 +1867,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  void _showAssignOTPDialog(String secret) {
+  void _showAssignOTPDialog(String otpauthRaw) {
+    final parsed = parseOtpauthUri(otpauthRaw);
+    if (parsed == null) {
+      _showErrorSnackBar("ERROR: INVALID_OTP_QR");
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1875,8 +1882,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
           borderRadius: BorderRadius.circular(8),
         ),
-        title: const Text("SELECT_ACCOUNT_FOR_2FA", 
-                          style: TextStyle(color: Color(0xFF00FBFF), fontSize: 16)),
+        title: const Text(
+          "SELECT_ACCOUNT_FOR_2FA",
+          style: TextStyle(color: Color(0xFF00FBFF), fontSize: 16),
+        ),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView.builder(
@@ -1886,23 +1895,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               title: Text(_passwords[i].platform, style: const TextStyle(color: Colors.white)),
               subtitle: Text(_passwords[i].username, style: const TextStyle(color: Colors.white54, fontSize: 10)),
               onTap: () async {
-                final cleanSecret = _normalizeTotpSecret(secret);
+                String cleanSecret = parsed.secret.trim().toUpperCase().replaceAll(RegExp(r'[^A-Z2-7=]'), '');
+                cleanSecret = cleanSecret.replaceAll('=', '');
 
-                if (!_looksLikeBase32Secret(cleanSecret)) {
-                  if (mounted) {
-                    Navigator.pop(context);
-                    _showErrorSnackBar("ERROR: INVALID_2FA_SECRET");
-                  }
-                  return;
-                }
+                final db = await DBHelper.database;
 
                 final masterKeyString = utf8.decode(widget.masterKey);
                 final encryptedSeed = EncryptionService.encrypt(cleanSecret, masterKeyString);
 
-                final db = await DBHelper.database;
+                final metaJson = jsonEncode(parsed.meta.toJson());
+                final encryptedMeta = EncryptionService.encrypt(metaJson, masterKeyString);
+
                 await db.update(
                   'accounts',
-                  {'otp_seed': encryptedSeed, 'updated_at': DateTime.now().toIso8601String()},
+                  {
+                    'otp_seed': encryptedSeed,
+                    'otp_meta': encryptedMeta,
+                    'updated_at': DateTime.now().toIso8601String(),
+                  },
                   where: 'id = ?',
                   whereArgs: [_passwords[i].id],
                 );
@@ -2742,7 +2752,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     String? plain;
 
-    // ya cifrado (vX.)
     final isEnc = raw.startsWith('v4.') || raw.startsWith('v3.') || raw.startsWith('v2.') || raw.startsWith('v1.');
     if (isEnc) {
       final dec = EncryptionService.decrypt(combinedText: raw, masterKeyBytes: widget.masterKey);
@@ -2751,13 +2760,68 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (!_looksLikeBase32Secret(plain)) plain = null;
       }
     } else {
-      // legacy en claro
       final norm = _normalizeTotpSecret(raw);
       plain = _looksLikeBase32Secret(norm) ? norm : null;
     }
 
     _totpSecretCache[id] = plain;
     return plain;
+  }
+
+  TotpMeta _getTotpMetaOrDefault(PasswordModel item) {
+    final raw = item.otpMeta;
+    if (raw == null || raw.isEmpty) return const TotpMeta();
+
+    if (raw.startsWith('v4.') || raw.startsWith('v3.') || raw.startsWith('v2.') || raw.startsWith('v1.')) {
+      final dec = EncryptionService.decrypt(
+        combinedText: raw,
+        masterKeyBytes: widget.masterKey,
+      );
+      if (dec.isEmpty || dec.startsWith('ERROR:')) return const TotpMeta();
+      try {
+        return TotpMeta.fromJson(jsonDecode(dec) as Map<String, dynamic>);
+      } catch (_) {
+        return const TotpMeta();
+      }
+    }
+
+    try {
+      return TotpMeta.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return const TotpMeta();
+    }
+  }
+
+  Algorithm _mapAlgorithm(String algo) {
+    switch (algo.toUpperCase()) {
+      case 'SHA256':
+        return Algorithm.SHA256;
+      case 'SHA512':
+        return Algorithm.SHA512;
+      default:
+        return Algorithm.SHA1;
+    }
+  }
+
+  Widget _buildMetaChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFF00FBFF).withOpacity(0.15),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: const Color(0xFF00FBFF).withOpacity(0.3),
+        ),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Color(0xFF00FBFF),
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
   }
 
   Widget _buildPasswordList() {
@@ -2921,87 +2985,131 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ],
                 if (item.otpSeed != null && item.otpSeed!.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF00FBFF).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: const Color(0xFF00FBFF).withOpacity(0.3)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.security, size: 12, color: Color(0xFF00FBFF)),
-                        const SizedBox(width: 6),
-                        InkWell(
-                          onTap: () {
-                            try {
-                              final secretPlain = _getTotpSecretPlainCached(item);
-                              if (secretPlain == null) return;
+                  Builder(
+                    builder: (_) {
+                      final secretPlain = _getTotpSecretPlainCached(item);
+                      final meta = _getTotpMetaOrDefault(item);
+                      final algo = _mapAlgorithm(meta.algorithm);
 
-                              final code = OTP.generateTOTPCodeString(
-                                secretPlain,
-                                _totpNowMs,
-                                interval: 30,
-                                length: 6,
-                                algorithm: Algorithm.SHA1,
-                                isGoogle: true,
-                              );
+                      String codeFormatted = "OTP_ERR";
 
-                              Clipboard.setData(ClipboardData(text: code));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('TOTP_COPIED_TO_CLIPBOARD'),
-                                  backgroundColor: Color(0xFF00FBFF),
-                                  behavior: SnackBarBehavior.floating,
-                                  duration: Duration(seconds: 1),
+                      if (secretPlain != null) {
+                        try {
+                          final code = OTP.generateTOTPCodeString(
+                            secretPlain,
+                            _totpNowMs,
+                            interval: meta.period,
+                            length: meta.digits,
+                            algorithm: algo,
+                            isGoogle: true,
+                          );
+
+                          codeFormatted = code.replaceAllMapped(
+                            RegExp(r".{3}"),
+                            (m) => "${m.group(0)} ",
+                          );
+                        } catch (_) {}
+                      }
+
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF00FBFF).withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: const Color(0xFF00FBFF).withOpacity(0.3),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.security,
+                                  size: 14,
+                                  color: Color(0xFF00FBFF),
                                 ),
-                              );
-                            } catch (e) {
-                              debugPrint("Error copying TOTP: $e");
-                            }
-                          },
-                          borderRadius: BorderRadius.circular(4),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                            child: Text(
-                              () {
-                                final secretPlain = _getTotpSecretPlainCached(item);
-                                if (secretPlain == null) return "OTP_ERR";
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    meta.issuer ?? "TWO_FACTOR_AUTH",
+                                    style: const TextStyle(
+                                      color: Color(0xFF00FBFF),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
 
-                                final code = OTP.generateTOTPCodeString(
-                                  secretPlain,
-                                  _totpNowMs,
-                                  interval: 30,
-                                  length: 6,
-                                  algorithm: Algorithm.SHA1,
-                                  isGoogle: true,
-                                );
-
-                                return code.replaceAllMapped(RegExp(r".{3}"), (m) => "${m.group(0)} ");
-                              }(),
-                              style: const TextStyle(
-                                color: Color(0xFF00FBFF),
-                                fontFamily: 'monospace',
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                                letterSpacing: 2,
+                            const SizedBox(height: 6),
+                            Center(
+                              child: InkWell(
+                                onTap: () {
+                                  if (secretPlain == null) return;
+                                  Clipboard.setData(
+                                    ClipboardData(
+                                      text: codeFormatted.replaceAll(" ", ""),
+                                    ),
+                                  );
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('TOTP_COPIED_TO_CLIPBOARD'),
+                                      backgroundColor: Color(0xFF00FBFF),
+                                      duration: Duration(seconds: 1),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                },
+                                borderRadius: BorderRadius.circular(4),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 4),
+                                  child: Text(
+                                    codeFormatted,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Color(0xFF00FBFF),
+                                      fontFamily: 'monospace',
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                      letterSpacing: 3,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
+
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              children: [
+                                _buildMetaChip("${meta.digits}D"),
+                                _buildMetaChip("${meta.period}s"),
+                                _buildMetaChip(meta.algorithm),
+                              ],
+                            ),
+
+                            const SizedBox(height: 6),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 3,
+                              child: LinearProgressIndicator(
+                                value: progress,
+                                backgroundColor: Colors.white10,
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(progressColor),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          width: 40,
-                          height: 2,
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            backgroundColor: Colors.white10,
-                            valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-                          ),
-                        ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
                 ]
               ],
