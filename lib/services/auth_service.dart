@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'key_derivation_service.dart';
@@ -9,11 +10,26 @@ class AuthService {
   static const String _panicHashKey = 'panic_password_hash';
   static const String _panicSaltKey = 'panic_password_salt';
   static const String _stealthCodeKey = 'stealth_code';
+
+  static const String _bioWrappedMasterKey = 'bio_wrapped_master_key_v1';
+  static const String _bioEnabledKey = 'bio_enabled';
+
   static const String _bioKeyKey = 'biometric_key';
+
   static const String _firstTimeKey = 'is_first_time';
   static const String _sessionTimeoutKey = 'session_timeout_minutes';
   static const String _autoLockKey = 'auto_lock_enabled';
   static const String _screenshotProtectionKey = 'screenshot_protection';
+
+  static const FlutterSecureStorage _secure = FlutterSecureStorage();
+
+  static const AndroidOptions _aOptions = AndroidOptions(
+    encryptedSharedPreferences: true,
+  );
+
+  static const IOSOptions _iOptions = IOSOptions(
+    accessibility: KeychainAccessibility.first_unlock_this_device,
+  );
 
   static Future<bool> isFirstTime() async {
     final prefs = await SharedPreferences.getInstance();
@@ -22,9 +38,8 @@ class AuthService {
 
   static Future<void> setMasterPassword(String password) async {
     final prefs = await SharedPreferences.getInstance();
-    
-    final salt = KeyDerivationService.generateSalt();
 
+    final salt = KeyDerivationService.generateSalt();
     final hash = KeyDerivationService.hashPassword(password, salt);
 
     await prefs.setString(_masterHashKey, hash);
@@ -42,27 +57,25 @@ class AuthService {
 
   static Future<bool> verifyPassword(String password) async {
     final prefs = await SharedPreferences.getInstance();
-    
+
     final storedHash = prefs.getString(_masterHashKey);
     final saltString = prefs.getString(_masterSaltKey);
-    
+
     if (storedHash == null || saltString == null) return false;
-    
+
     final salt = KeyDerivationService.saltFromString(saltString);
-    
     return KeyDerivationService.verifyPassword(password, storedHash, salt);
   }
 
   static Future<bool> verifyPanicPassword(String password) async {
     final prefs = await SharedPreferences.getInstance();
-    
+
     final storedHash = prefs.getString(_panicHashKey);
     final saltString = prefs.getString(_panicSaltKey);
-    
+
     if (storedHash == null || saltString == null) return false;
-    
+
     final salt = KeyDerivationService.saltFromString(saltString);
-    
     return KeyDerivationService.verifyPassword(password, storedHash, salt);
   }
 
@@ -73,24 +86,74 @@ class AuthService {
 
   static Future<String> getStealthCode() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_stealthCodeKey) ?? '1234';
+    return prefs.getString(_stealthCodeKey) ?? '';
   }
 
   static Future<void> saveMasterKeyForBio(String masterKey) async {
+    await _secure.write(
+      key: _bioWrappedMasterKey,
+      value: masterKey,
+      aOptions: _aOptions,
+      iOptions: _iOptions,
+    );
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_bioKeyKey, base64Encode(utf8.encode(masterKey)));
+    await prefs.setBool(_bioEnabledKey, true);
+
+    await prefs.remove(_bioKeyKey);
   }
 
   static Future<String?> getMasterKeyForBio() async {
     final prefs = await SharedPreferences.getInstance();
-    final encoded = prefs.getString(_bioKeyKey);
-    if (encoded == null) return null;
-    return utf8.decode(base64Decode(encoded));
+    final legacy = prefs.getString(_bioKeyKey);
+    if (legacy != null) {
+      try {
+        final plain = utf8.decode(base64Decode(legacy));
+        if (plain.isNotEmpty) {
+          await saveMasterKeyForBio(plain);
+        }
+      } catch (_) {
+        // ignore
+      } finally {
+        await prefs.remove(_bioKeyKey);
+      }
+    }
+
+    final enabled = prefs.getBool(_bioEnabledKey) ?? false;
+    if (!enabled) return null;
+
+    try {
+      final v = await _secure.read(
+        key: _bioWrappedMasterKey,
+        aOptions: _aOptions,
+        iOptions: _iOptions,
+      );
+      if (v == null || v.isEmpty) return null;
+      return v;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> disableBiometrics() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_bioEnabledKey, false);
+    await _secure.delete(
+      key: _bioWrappedMasterKey,
+      aOptions: _aOptions,
+      iOptions: _iOptions,
+    );
   }
 
   static Future<void> clearAllData() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
+
+    await _secure.delete(
+      key: _bioWrappedMasterKey,
+      aOptions: _aOptions,
+      iOptions: _iOptions,
+    );
   }
 
   static Future<void> setSessionTimeout(int minutes) async {
@@ -126,11 +189,11 @@ class AuthService {
   static Future<Uint8List> deriveEncryptionKey(String masterPassword) async {
     final prefs = await SharedPreferences.getInstance();
     final saltString = prefs.getString(_masterSaltKey);
-    
+
     if (saltString == null) {
       throw Exception('CRITICAL_ERROR: No salt found');
     }
-    
+
     final salt = KeyDerivationService.saltFromString(saltString);
     return KeyDerivationService.deriveKey(masterPassword, salt);
   }
