@@ -1,3 +1,23 @@
+/*
+|--------------------------------------------------------------------------
+| PassGuard OS - AuthWrapper
+|--------------------------------------------------------------------------
+| Description:
+|   Entry authentication layer for the application.
+|
+| Responsibilities:
+|   - Handle first-time setup
+|   - Manage master password verification
+|   - Control biometric authentication
+|   - Execute panic protocol
+|   - Lock and wipe sensitive memory
+|
+| Security Notes:
+|   - Master key stored only in RAM
+|   - RAM wiped on lock or dispose
+|--------------------------------------------------------------------------
+*/
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:typed_data';
