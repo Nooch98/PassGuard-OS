@@ -94,14 +94,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
-      }
-      SessionManager().resetTimer();
-      
-    } else if (state == AppLifecycleState.resumed) {
-      SessionManager().resetTimer();
+
+    if (state == AppLifecycleState.paused || 
+        state == AppLifecycleState.inactive) {
+
+      SessionManager().pause(lockImmediately: true);
+
+    }
+
+    if (state == AppLifecycleState.resumed) {
+
+      SessionManager().resume(treatAsActivity: true);
+
     }
   }
 
@@ -205,7 +209,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _onUserInteraction() {
-    SessionManager().resetTimer();
+    SessionManager().activity();
   }
 
   Future<void> _loadPasswords({String? query}) async {
@@ -3481,3 +3485,4 @@ class SecurityController {
   void pauseLocking() => shouldLockOnLeave = false;
   void resumeLocking() => shouldLockOnLeave = true;
 }
+
