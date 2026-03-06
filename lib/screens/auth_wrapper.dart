@@ -326,6 +326,8 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
       await db.delete('accounts');
       await db.delete('recovery_codes');
       await db.delete('file_vault');
+      await db.delete('settings');
+      await db.delete('identities');
       await db.execute('VACUUM');
       await AuthService.clearAllData();
       await DBHelper.close();
@@ -493,3 +495,4 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     );
   }
 }
+
