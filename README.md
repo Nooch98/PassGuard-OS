@@ -138,7 +138,7 @@ Encrypted SQLite Database
 | Master Password | NEVER STORED | Only PBKDF2 hash |
 | Account Passwords | SQLite | AES-256 encrypted |
 | Notes | SQLite | AES-256 encrypted |
-| 2FA Seeds (TOTP) | SQLite | Not encrypted (already secret) |
+| 2FA Seeds (TOTP) | SQLite | AES-256 encrypted |
 | Recovery Codes | SQLite | AES-256 encrypted |
 | Biometric Key | OS Keystore | Platform-managed |
 
