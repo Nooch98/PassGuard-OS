@@ -9,6 +9,7 @@
 ![badge](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Android-lightgrey?style=flat)
 ![badge](https://img.shields.io/badge/Encryption-AES--256-red?style=flat&logo=lock)
 ![badge](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Nooch98/PassGuard-OS)
 
 ## What is PassGuard OS?
 
