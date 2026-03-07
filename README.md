@@ -13,15 +13,15 @@
 
 ## What is PassGuard OS?
 
-PassGuard OS is a cross-Platform, offline password manager designed for users who take their digital security seriusly. Unlike cloud-based solutions, your data never leaves your devices unless you explicitly export it.
+PassGuard OS is a cross-Platform, offline password manager designed for users who take their digital security seriously. Unlike cloud-based solutions, your data never leaves your devices unless you explicitly export it.
 
 ### Why PassGuard OS?
 
 * **✅ 100% Offline** - No cloud, no tracking, no telemetry
-* **✅ Encryption** - AES-256 + PBKDF2 (100k iterations)
-* **✅ Zero Knowledge Architecture** - Master password never stored
+* **✅ Encryption** - AES-256 + PBKDF2 (200k iterations)
+* **✅ Zero Knowledge Architecture** - Master password is never stored in plaintext, Only a PBKDF2 verification hash is stored locally. Biometric unlock stores an encrypted vault key in the OS secure keystore.
 * **✅ Panic Protocol** - Emergency data wipe with biometric trigger
-* **✅ Cross-Platform** - Windows, linux. Android
+* **✅ Cross-Platform** - Windows, linux, Android
 * **✅ Open Source** - Audit the code yourself
 * **✅ No Subscriptions** - Free
 
@@ -30,13 +30,13 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 ### Security Features
 | Feature | Description |
 |--- |---
-| PBKDF2 Key Derivation | 100.00 iterations with unique salt per user |
-| AES-256 Encryption | AES-256 encryption for all stored data |
+| PBKDF2 Key Derivation | 200.00 iterations with unique salt per user |
+| AES-256 Encryption | AES-256-CBC + HMAC-SHA256 encryption for all stored data |
 | Biometric Lock | Fingerprint(recomended)/Face ID support (Android) |
 | Auto-Lock | Configurable session timeout (1-30 min) |
 | Panic Mode | Emergency wipe triggered by password or biometric |
 | Screenshot Protection | Prevents screenshots on Android |
-| Failed Login Lockout | 5 Attemps = 30-second lockout |
+| Failed Login Lockout | 5 Attempts = 30-second lockout |
 
 ### Password Management
 * **Advanced Password Generator**
@@ -70,7 +70,7 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 
 **Steganography Feature:** Hide your entire encrypted vault inside an innocent-looking image. Perfect for cloud backup without exposing your data
 
-### Aditional Features
+### Additional Features
 
 * **Recovery Code Manager** - Import & track 2FA backup codes
 * **Encrypted File Vault** - Store sensitive documents *(Beta - functional but may have issues)*
@@ -122,7 +122,7 @@ Restore: Settings → Cold Storage → Extract From Image
 ```
 User Password
      ↓
-PBKDF2 (100,000 iterations + unique salt)
+PBKDF2 (200,000 iterations + unique salt)
      ↓
 256-bit Encryption Key
      ↓
@@ -131,15 +131,25 @@ AES-256-CBC Encryption
 Encrypted SQLite Database
 ```
 
+### Cryptography Details
+
+• Key Derivation: PBKDF2-HMAC-SHA256  
+• Iterations: 200,000  
+• Salt: 16 bytes random per vault  
+• Encryption: AES-256-CBC  
+• Authentication: HMAC-SHA256  
+• IV: 16 bytes random per encryption  
+• Random generator: Dart Random.secure()  
+
 ### What PassGuard OS Store & How
 
 | Data Type | Storage | Encryption Status |
 |--- |--- |---
 | Master Password | NEVER STORED | Only PBKDF2 hash |
-| Account Passwords | SQLite | AES-256 encrypted |
-| Notes | SQLite | AES-256 encrypted |
-| 2FA Seeds (TOTP) | SQLite | AES-256 encrypted |
-| Recovery Codes | SQLite | AES-256 encrypted |
+| Account Passwords | SQLite | AES-256-CBC + HMAC-SHA256 encrypted |
+| Notes | SQLite | AES-256-CBC + HMAC-SHA256 encrypted |
+| 2FA Seeds (TOTP) | SQLite | AES-256-CBC + HMAC-SHA256 encrypted |
+| Recovery Codes | SQLite | AES-256-CBC + HMAC-SHA256 encrypted |
 | Biometric Key | OS Keystore | Platform-managed |
 
 ### Security Audit
@@ -159,7 +169,7 @@ Before releasing this as v1.0, the following measures were taken:
 PassGuard OS protects against:
 
 * Physical device theft (encrypted + auto-lock)
-* Malware reading memory (short session + cleanup)
+* Reduces exposure window through session timeout and memory cleanup
 * Coercion (panic mode)
 * Cloud breaches (offline-only)
 
@@ -167,7 +177,9 @@ PassGuard OS does NOT protect against:
 
 * Keyloggers on compromised systems
 * Screen recording malware
+* Full device compromise
 * Physical coercion if unlocked
+* Memory forensic attacks while unlocked
 * Advanced persistent threats (APTs)
 
 ### Best Practices
