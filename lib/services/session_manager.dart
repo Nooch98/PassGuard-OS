@@ -34,12 +34,12 @@ class SessionManager {
   Duration _timeoutDuration = const Duration(minutes: 5);
 
   bool _isEnabled = true;
-  bool _isPaused = false;
   bool _initialized = false;
   DateTime? _lastActivity;
   Timer? _ticker;
 
-  final ValueNotifier<Duration?> remainingTimeNotifier = ValueNotifier<Duration?>(null);
+  final ValueNotifier<Duration?> remainingTimeNotifier =
+      ValueNotifier<Duration?>(null);
 
   static const Duration _tickInterval = Duration(seconds: 1);
 
@@ -59,12 +59,11 @@ class SessionManager {
 
   bool get isInitialized => _initialized;
   bool get isEnabled => _isEnabled;
-  bool get isPaused => _isPaused;
-
   Duration get timeoutDuration => _timeoutDuration;
 
   void setEnabled(bool enabled) {
     _isEnabled = enabled;
+
     if (!_isEnabled) {
       _stopTicker();
       remainingTimeNotifier.value = null;
@@ -77,43 +76,16 @@ class SessionManager {
   void setTimeoutDuration(Duration duration) {
     _timeoutDuration = duration;
 
-    if (_isEnabled && !_isPaused) {
+    if (_isEnabled && _initialized) {
       _emitRemaining();
       _checkTimeout();
     }
   }
 
   void activity() {
-    if (!_isEnabled || _isPaused) return;
-
+    if (!_isEnabled || !_initialized) return;
     _lastActivity = DateTime.now();
     _emitRemaining();
-  }
-
-  void pause({bool lockImmediately = false}) {
-    if (!_isEnabled) return;
-    _isPaused = true;
-
-    if (lockImmediately) {
-      lockNow(reason: 'APP_PAUSED');
-      return;
-    }
-
-    _stopTicker();
-    remainingTimeNotifier.value = null;
-  }
-
-  void resume({bool treatAsActivity = true}) {
-    if (!_isEnabled) return;
-    _isPaused = false;
-
-    if (treatAsActivity) {
-      _lastActivity = DateTime.now();
-    }
-
-    _startTicker();
-    _emitRemaining();
-    _checkTimeout();
   }
 
   void lockNow({String reason = 'MANUAL_LOCK'}) {
@@ -122,7 +94,7 @@ class SessionManager {
   }
 
   Duration? get remainingTime {
-    if (!_isEnabled || _isPaused || _lastActivity == null) return null;
+    if (!_isEnabled || !_initialized || _lastActivity == null) return null;
 
     final elapsed = DateTime.now().difference(_lastActivity!);
     final remaining = _timeoutDuration - elapsed;
@@ -132,7 +104,7 @@ class SessionManager {
   void _startTicker() {
     _stopTicker();
 
-    if (!_isEnabled || _isPaused) return;
+    if (!_isEnabled || !_initialized) return;
 
     _ticker = Timer.periodic(_tickInterval, (_) {
       _emitRemaining();
@@ -154,7 +126,7 @@ class SessionManager {
     if (r == null) return;
 
     if (r == Duration.zero) {
-      debugPrint('SESSION_TIMEOUT: LOCKING_VAULT');
+      debugPrint('SESSION_TIMEOUT: HARD_LOCK');
       _stopTicker();
       _onTimeout?.call();
     }
