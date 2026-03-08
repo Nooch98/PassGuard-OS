@@ -44,7 +44,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   List<PasswordModel> _passwords = [];
   bool _isSearching = false;
   final _searchController = TextEditingController();
-  List<PasswordModel> _filteredPasswords = [];
   Timer? _totpTimer;
   int _totpNowMs = DateTime.now().millisecondsSinceEpoch;
   double _currentHealthScore = 0;
@@ -55,7 +54,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   String? _filterCategory;
   bool _showFavoritesOnly = false;
-  final Set<int> _otpUpgraded = {};
 
   final Map<int, String?> _totpSecretCache = {};
 
@@ -94,18 +92,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-
-    if (state == AppLifecycleState.paused || 
-        state == AppLifecycleState.inactive) {
-
-      SessionManager().pause(lockImmediately: true);
-
-    }
-
     if (state == AppLifecycleState.resumed) {
-
-      SessionManager().resume(treatAsActivity: true);
-
+      SessionManager().activity();
     }
   }
 
@@ -709,19 +697,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildAuditRow(String label, String value, Color valColor) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text('> $label', style: const TextStyle(color: Colors.white70, fontSize: 11)),
-          Text(value, style: TextStyle(color: valColor, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-        ],
-      ),
-    );
-  }
-
   Color _getHealthColor(double score) {
     if (score >= 80) return const Color(0xFF00FF00);
     if (score >= 60) return const Color(0xFF00FBFF);
@@ -1124,51 +1099,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showStealthCodeDialog() {
-    final codeC = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF0A0A0E),
-        shape: RoundedRectangleBorder(
-          side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        title: const Text("> SET_NEW_STEALTH_CODE", 
-                          style: TextStyle(color: Color(0xFF00FBFF), fontSize: 16)),
-        content: TextField(
-          controller: codeC,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            hintText: "Example: 5566",
-            hintStyle: TextStyle(color: Colors.white24),
-          ),
-          style: const TextStyle(letterSpacing: 5, color: Colors.white),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("CANCEL", style: TextStyle(color: Colors.white54)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00FBFF),
-              foregroundColor: Colors.black,
-            ),
-            onPressed: () async {
-              if (codeC.text.isNotEmpty) {
-                await AuthService.setStealthCode(codeC.text);
-                Navigator.pop(context);
-                _showSuccessSnackBar("STEALTH_CODE_UPDATED");
-              }
-            },
-            child: const Text("UPDATE", style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        ],
       ),
     );
   }
@@ -2738,10 +2668,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  bool _isEncryptedSeed(String s) {
-    return s.startsWith('v3.') || s.startsWith('v4.') || s.startsWith('v2.') || s.startsWith('v1.');
-  }
-
   String? _getTotpSecretPlainCached(PasswordModel item) {
     final id = item.id;
     if (id == null) return null;
@@ -3485,4 +3411,3 @@ class SecurityController {
   void pauseLocking() => shouldLockOnLeave = false;
   void resumeLocking() => shouldLockOnLeave = true;
 }
-
