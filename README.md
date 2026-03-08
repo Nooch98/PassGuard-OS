@@ -17,7 +17,7 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 
 ### Why PassGuard OS?
 
-* **✅ 100% Offline** - No cloud, no tracking, no telemetry
+* **✅ Offline-First** - Core vault operations run locally without cloud dependency.
 * **✅ Encryption** - AES-256-GCM + PBKDF2-HMAC-SHA256 (200k iterations)
 * **✅ Zero Knowledge Architecture** - Master password is never stored in plaintext, Only a PBKDF2 verification hash is stored locally. Biometric unlock stores an encrypted vault key in the OS secure keystore.
 * **✅ Panic Protocol** - Emergency data wipe with biometric trigger
@@ -161,7 +161,7 @@ Before releasing this as v1.0, the following measures were taken:
 * No data leakage to logs
 * Secure random number generation
 * Memory cleanup on lock
-* No external network calls
+* No vault data or secret material is transmitted to external servers.
 * Open source for community audit
 
 >[!IMPORTANT]
