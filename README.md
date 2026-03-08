@@ -18,7 +18,7 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 ### Why PassGuard OS?
 
 * **✅ 100% Offline** - No cloud, no tracking, no telemetry
-* **✅ Encryption** - AES-256 + PBKDF2 (200k iterations)
+* **✅ Encryption** - AES-256-GCM + PBKDF2-HMAC-SHA256 (200k iterations)
 * **✅ Zero Knowledge Architecture** - Master password is never stored in plaintext, Only a PBKDF2 verification hash is stored locally. Biometric unlock stores an encrypted vault key in the OS secure keystore.
 * **✅ Panic Protocol** - Emergency data wipe with biometric trigger
 * **✅ Cross-Platform** - Windows, linux, Android
@@ -30,8 +30,8 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 ### Security Features
 | Feature | Description |
 |--- |---
-| PBKDF2 Key Derivation | 200.00 iterations with unique salt per user |
-| AES-256 Encryption | AES-256-CBC + HMAC-SHA256 encryption for all stored data |
+| PBKDF2 Key Derivation | 200,000 iterations with random salt per encrypted value |
+| AES-256 Encryption | AES-256-GCM encryption for all stored data |
 | Biometric Lock | Fingerprint(recomended)/Face ID support (Android) |
 | Auto-Lock | Configurable session timeout (1-30 min) |
 | Panic Mode | Emergency wipe triggered by password or biometric |
@@ -122,34 +122,36 @@ Restore: Settings → Cold Storage → Extract From Image
 ```
 User Password
      ↓
-PBKDF2 (200,000 iterations + unique salt)
+PBKDF2-HMAC-SHA256 (200,000 iterations + random salt)
      ↓
 256-bit Encryption Key
      ↓
-AES-256-CBC Encryption
+AES-256-GCM Encryption
      ↓
-Encrypted SQLite Database
+Encrypted SQLite Fields
 ```
+> [!WARNING]
+> Sensitive fields inside the SQLite database are encrypted individually rather than encrypting the entire database file.
 
 ### Cryptography Details
 
 • Key Derivation: PBKDF2-HMAC-SHA256  
 • Iterations: 200,000  
-• Salt: 16 bytes random per vault  
-• Encryption: AES-256-CBC  
-• Authentication: HMAC-SHA256  
-• IV: 16 bytes random per encryption  
-• Random generator: Dart Random.secure()  
+• Salt: 16 bytes random per encrypted value  
+• Encryption: AES-256-GCM  
+• Nonce: 12 bytes random per encryption  
+• Authentication: Built into GCM mode  
+• Random generator: Dart Random.secure() (CSPRNG)  
 
 ### What PassGuard OS Store & How
 
 | Data Type | Storage | Encryption Status |
 |--- |--- |---
 | Master Password | NEVER STORED | Only PBKDF2 hash |
-| Account Passwords | SQLite | AES-256-CBC + HMAC-SHA256 encrypted |
-| Notes | SQLite | AES-256-CBC + HMAC-SHA256 encrypted |
-| 2FA Seeds (TOTP) | SQLite | AES-256-CBC + HMAC-SHA256 encrypted |
-| Recovery Codes | SQLite | AES-256-CBC + HMAC-SHA256 encrypted |
+| Account Passwords | SQLite | AES-256-GCM encrypted |
+| Notes | SQLite | AES-256-GCM encrypted |
+| 2FA Seeds (TOTP) | SQLite | AES-256-GCM encrypted |
+| Recovery Codes | SQLite | AES-256-GCM encrypted |
 | Biometric Key | OS Keystore | Platform-managed |
 
 ### Security Audit
@@ -165,7 +167,7 @@ Before releasing this as v1.0, the following measures were taken:
 >[!IMPORTANT]
 > While this app implements strong security practices, it has not been professionally audited. Use at your own discretion.
 
-### Thread Model
+### Threat Model
 PassGuard OS protects against:
 
 * Physical device theft (encrypted + auto-lock)
