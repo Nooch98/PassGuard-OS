@@ -20,6 +20,7 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 * **✅ Offline-First** - Core vault operations run locally without cloud dependency.
 * **✅ Encryption** - AES-256-GCM + PBKDF2-HMAC-SHA256 (200k iterations)
 * **✅ Zero Knowledge Architecture** - Master password is never stored in plaintext, Only a PBKDF2 verification hash is stored locally. Biometric unlock stores an encrypted vault key in the OS secure keystore.
+* **✅ Browser Integration** - Optional browser extension via secure local bridge
 * **✅ Panic Protocol** - Emergency data wipe with biometric trigger
 * **✅ Cross-Platform** - Windows, linux, Android
 * **✅ Open Source** - Audit the code yourself
@@ -61,6 +62,74 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
     * Sort by: Name, Date, Last Used, Favorites
     * Encrypted notes per entry
     * Password history (last 5 changes)
+ 
+### Chrome Extension (OPTIONAL)
+Optional browser extension via secure local bridge
+
+The browser extension allows:
+* Autofill login credentials
+* Manual password copy
+* Lock vault from browser
+* It only provides the credentials for that domain.
+
+The extension **never accesses the vault directly**.
+
+```plaintext
+Browser Extension  
+↓  
+Native Messaging Host  
+↓  
+Local Authenticated Bridge  
+↓  
+PassGuard OS Application  
+↓  
+Encrypted Vault
+```
+
+Security design:
+
+* The extension cannot read the vault directly.
+* All credential requests are validated by the PassGuard OS application.
+* Communication occurs only through `localhost` IPC.
+* A **bridge authentication token** prevents unauthorized processes from accessing the vault.
+
+https://github.com/user-attachments/assets/7a037229-5e2b-4558-850f-30d6a9c2ad13
+
+The file `com.passguard.os.json` is located in the extension directory.
+```json
+{
+  "name": "com.passguard.os",
+  "description": "PassGuard OS Native Messaging Host",
+  "path": "<YOUR PATH TO passguardnativehost.exe>",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://<HERE YOU NEED PUT THE EXTENSION ID ON CHROME>/"
+  ]
+}
+```
+
+This manifest must be registered in the system so Chrome can locate the native host.
+On Windows the registry key is typically:
+```powershell
+HKEY_CURRENT_USER\Software\Google\Chrome\NativeMessagingHosts\com.passguard.os
+```
+pointing to the path of `com.passguard.os.json`.
+
+### PassGuard NativeHost
+You need to extract `passguard_native_host`dir from the PassGuard-OS directory.
+If you want to use the Chrome extension, you will need to create the executable with the following command:
+```bash
+mkdir build
+dart compile exe bin/passguard_main.dart -o build/PassGuardNativeHost.exe
+```
+
+**Security Note**
+The browser extension is designed to minimize exposure of sensitive data:
+
+* The extension never stores credentials
+* The vault remains encrypted on disk
+* Decryption occurs only during an active session
+* Secrets are returned only when requested for the active domain
 
 ### Backup & Sync
 | Method | Capacity | Best For |
