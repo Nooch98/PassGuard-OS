@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'screens/auth_wrapper.dart';
+import 'services/local_bridge_Service.dart';
+import 'services/bridge_auth_service.dart';
 
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await BridgeAuthService.instance.initialize();
+  await LocalBridgeService.start();
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -19,7 +24,7 @@ void main() {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-  
+
   runApp(const PasswordApp());
 }
 
@@ -31,7 +36,6 @@ class PasswordApp extends StatelessWidget {
     const neonCyan = Color(0xFF00FBFF);
     const neonPink = Color(0xFFFF00FF);
     const neonGreen = Color(0xFF00FF00);
-    const neonYellow = Color(0xFFFFFF00);
     const darkBg = Color(0xFF0A0A0E);
     const cardBg = Color(0xFF16161D);
 
