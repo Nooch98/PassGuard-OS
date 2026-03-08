@@ -28,24 +28,25 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../services/auth_service.dart';
 import '../services/db_helper.dart';
+import '../services/session_manager.dart';
+import '../services/session_service.dart';
 import 'home_page.dart';
 import '../widgets/custom_keyboard.dart';
 
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
-  
+
   @override
   State<AuthWrapper> createState() => _AuthWrapperState();
 }
 
-class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
+class _AuthWrapperState extends State<AuthWrapper>
+    with WidgetsBindingObserver {
   bool? isFirstTime;
-  bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
   final TextEditingController _passController = TextEditingController();
   final TextEditingController _confirmController = TextEditingController();
 
-  Uint8List? masterKeyMem;
   String _inputBuffer = "";
 
   final LocalAuthentication _localAuth = LocalAuthentication();
@@ -55,6 +56,7 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
   bool _bioBusy = false;
 
   late final SecurityController _security;
+  final SessionManager _sessionManager = SessionManager();
 
   @override
   void initState() {
@@ -65,56 +67,100 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     _checkBiometrics();
   }
 
-  Future<void> _checkBiometrics() async {
-    try {
-      final bool isDeviceSupported = await _localAuth.isDeviceSupported();
-
-      final bool canCheckBiometrics = await _localAuth.canCheckBiometrics;
-      final List<BiometricType> availableBiometrics = await _localAuth.getAvailableBiometrics();
-
-      if (mounted) {
-        setState(() {
-          _canCheckBio = isDeviceSupported && (canCheckBiometrics || availableBiometrics.isNotEmpty);
-        });
-        
-      }
-    } on PlatformException catch (e) {
-      if (mounted) setState(() => _canCheckBio = false);
-    }
-  }
-
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _lockVault();
+    _hardLock(reason: 'AUTH_WRAPPER_DISPOSE');
+    _passController.dispose();
+    _confirmController.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      if (_security.shouldLockOnLeave) {
-        _lockVault();
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      if (_security.shouldLockOnLeave &&
+          SessionService.instance.isSessionActive) {
+        _lockUiOnly();
       }
     }
   }
 
-  void _lockVault() {
-    if (masterKeyMem != null) {
-      for (int i = 0; i < masterKeyMem!.length; i++) {
-        masterKeyMem![i] = 0;
-      }
+  Future<void> _checkStatus() async {
+    bool first = await AuthService.isFirstTime();
+    if (mounted) {
+      setState(() => isFirstTime = first);
     }
-    masterKeyMem = null;
+  }
+
+  Future<void> _checkBiometrics() async {
+    try {
+      final bool isDeviceSupported = await _localAuth.isDeviceSupported();
+      final bool canCheckBiometrics = await _localAuth.canCheckBiometrics;
+      final List<BiometricType> availableBiometrics =
+          await _localAuth.getAvailableBiometrics();
+
+      if (mounted) {
+        setState(() {
+          _canCheckBio =
+              isDeviceSupported && (canCheckBiometrics || availableBiometrics.isNotEmpty);
+        });
+      }
+    } on PlatformException {
+      if (mounted) setState(() => _canCheckBio = false);
+    }
+  }
+
+  void _clearUiBuffers() {
     _inputBuffer = '';
     _passController.clear();
     _confirmController.clear();
+  }
+
+  void _ensureSessionRunning() {
+    if (!_sessionManager.isInitialized) {
+      _sessionManager.initialize(
+        onTimeout: () {
+          _hardLock(reason: 'SESSION_TIMEOUT');
+        },
+        timeout: const Duration(minutes: 5),
+        enabled: true,
+      );
+    } else {
+      _sessionManager.activity();
+    }
+  }
+
+  void _lockUiOnly() {
+    _clearUiBuffers();
+    SessionService.instance.lockUi();
     if (mounted) setState(() {});
   }
 
-  _checkStatus() async {
-    bool first = await AuthService.isFirstTime();
-    setState(() => isFirstTime = first);
+  void _hardLock({String reason = 'MANUAL_LOCK'}) {
+    _clearUiBuffers();
+    SessionService.instance.hardLock();
+    _sessionManager.dispose();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _onSuccessfulUnlock(String plainPassword,
+      {bool persistForBio = true}) async {
+    if (persistForBio) {
+      await AuthService.saveMasterKeyForBio(plainPassword);
+    }
+
+    final Uint8List masterKeyBytes =
+        Uint8List.fromList(utf8.encode(plainPassword));
+
+    SessionService.instance.startSession(masterKeyBytes);
+    _ensureSessionRunning();
+
+    _failedAttempts = 0;
+    _clearUiBuffers();
+
+    if (mounted) setState(() {});
   }
 
   Future<void> _handleBiometricAuth({required bool triggerPanic}) async {
@@ -124,6 +170,7 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     try {
       final bool deviceSupported = await _localAuth.isDeviceSupported();
       final bool canCheckBiometrics = await _localAuth.canCheckBiometrics;
+
       if (!deviceSupported && !canCheckBiometrics) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -155,9 +202,7 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
       if (!mounted) return;
 
       if (savedKey != null && savedKey.isNotEmpty) {
-        setState(() {
-          masterKeyMem = Uint8List.fromList(utf8.encode(savedKey));
-        });
+        await _onSuccessfulUnlock(savedKey, persistForBio: false);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("BIO_UNSYNCED: LOGIN_MANUALLY_ONCE")),
@@ -173,7 +218,7 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     }
   }
 
-  void _handleAuth() async {
+  Future<void> _handleAuth() async {
     if (_isLocked) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -187,7 +232,6 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     String currentInput = _inputBuffer;
     if (currentInput.isEmpty) return;
 
-    // Check panic password first
     bool isPanic = await AuthService.verifyPanicPassword(currentInput);
     if (isPanic) {
       await _executePanicProtocol();
@@ -195,9 +239,7 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     }
 
     if (isFirstTime!) {
-      // FIRST TIME SETUP
       if (_passController.text.isEmpty) {
-        // First password entry
         if (currentInput.length < 8) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -208,13 +250,13 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
           setState(() => _inputBuffer = "");
           return;
         }
-        
+
         setState(() {
           _passController.text = currentInput;
           _inputBuffer = "";
         });
+        return;
       } else if (_confirmController.text.isEmpty) {
-        // Confirmation
         if (currentInput != _passController.text) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -228,43 +270,35 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
           });
           return;
         }
-        
+
         setState(() {
           _confirmController.text = currentInput;
           _inputBuffer = "";
         });
+        return;
       } else {
-        // Panic password setup
         String mKey = _passController.text;
         await AuthService.setMasterPassword(mKey);
         await AuthService.setPanicPassword(currentInput);
-        await AuthService.saveMasterKeyForBio(mKey);
+
+        await _onSuccessfulUnlock(mKey, persistForBio: true);
 
         setState(() {
-          masterKeyMem = Uint8List.fromList(utf8.encode(mKey));
           isFirstTime = false;
-          _inputBuffer = "";
         });
-        _passController.clear();
-        _confirmController.clear();
+        return;
       }
     } else {
-      // NORMAL LOGIN
       bool isValid = await AuthService.verifyPassword(currentInput);
       if (isValid) {
-        await AuthService.saveMasterKeyForBio(currentInput);
-        setState(() {
-          masterKeyMem = Uint8List.fromList(utf8.encode(currentInput));
-          _inputBuffer = "";
-          _failedAttempts = 0;
-        });
+        await _onSuccessfulUnlock(currentInput, persistForBio: true);
       } else {
         HapticFeedback.vibrate();
         setState(() {
           _inputBuffer = "";
           _failedAttempts++;
         });
-        
+
         if (_failedAttempts >= 5) {
           setState(() => _isLocked = true);
           Future.delayed(const Duration(seconds: 30), () {
@@ -276,19 +310,18 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
             }
           });
         }
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("ACCESS_DENIED ($_failedAttempts/5)"),
-              backgroundColor: Colors.red,
-            )
+          SnackBar(
+            content: Text("ACCESS_DENIED ($_failedAttempts/5)"),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
   }
 
   Future<void> _executePanicProtocol() async {
-    // Show confirmation dialog
     bool? confirm = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -314,7 +347,8 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('WIPE_ALL_DATA', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text('WIPE_ALL_DATA',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -331,15 +365,19 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
       await db.execute('VACUUM');
       await AuthService.clearAllData();
       await DBHelper.close();
-      _lockVault();
-      _checkStatus();
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      _hardLock(reason: 'PANIC_PROTOCOL');
+      await _checkStatus();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("SYSTEM_ERROR: 0x0004128F - DATA_CORRUPTION_DETECTED"),
+            content:
+                Text("SYSTEM_ERROR: 0x0004128F - DATA_CORRUPTION_DETECTED"),
             backgroundColor: Colors.red,
-          )
-      );
+          ),
+        );
+      }
     }
   }
 
@@ -350,16 +388,23 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
         body: Center(child: CircularProgressIndicator(color: Color(0xFF00FBFF))),
       );
     }
-    
-    if (masterKeyMem != null) return HomePage(masterKey: masterKeyMem!);
+
+    final bool sessionActive = SessionService.instance.isSessionActive;
+    final bool uiLocked = SessionService.instance.isUiLocked;
+
+    if (sessionActive && !uiLocked) {
+      final masterKey = SessionService.instance.masterKeyBytesCopy!;
+      return HomePage(masterKey: masterKey);
+    }
 
     bool isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
-    bool settingConfirmation = isFirstTime! && _passController.text.isNotEmpty && _confirmController.text.isEmpty;
-    bool settingPanicKey = isFirstTime! && _passController.text.isNotEmpty && _confirmController.text.isNotEmpty;
+    bool settingPanicKey = isFirstTime! &&
+        _passController.text.isNotEmpty &&
+        _confirmController.text.isNotEmpty;
 
     String promptText;
     Color promptColor;
-    
+
     if (isFirstTime!) {
       if (_passController.text.isEmpty) {
         promptText = "> INITIALIZING_VAULT: SET_MASTER_PASSWORD";
@@ -372,7 +417,7 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
         promptColor = const Color(0xFFFF00FF);
       }
     } else {
-      promptText = "> VAULT_LOCKED";
+      promptText = sessionActive ? "> UI_LOCKED" : "> VAULT_LOCKED";
       promptColor = const Color(0xFF00FBFF);
     }
 
@@ -386,14 +431,26 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.security, size: 60, color: Color(0xFF00FBFF)),
+                const Icon(Icons.security,
+                    size: 60, color: Color(0xFF00FBFF)),
                 const SizedBox(height: 10),
                 Text(
-                    promptText,
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: promptColor),
-                    textAlign: TextAlign.center,
+                  promptText,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: promptColor,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-                
+                if (sessionActive && !isFirstTime!)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Background session still active until timeout',
+                      style: TextStyle(fontSize: 10, color: Colors.white54),
+                    ),
+                  ),
                 if (isFirstTime! && _passController.text.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(top: 10),
@@ -402,17 +459,18 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
                       style: TextStyle(fontSize: 10, color: Colors.white54),
                     ),
                   ),
-                
                 const SizedBox(height: 30),
-
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                   decoration: BoxDecoration(
                     color: const Color(0xFF16161D),
                     border: Border.all(
-                        color: settingPanicKey ? const Color(0xFFFF00FF) : const Color(0xFF00FBFF),
-                        width: 1
+                      color: settingPanicKey
+                          ? const Color(0xFFFF00FF)
+                          : const Color(0xFF00FBFF),
+                      width: 1,
                     ),
                     borderRadius: BorderRadius.circular(4),
                   ),
@@ -421,29 +479,36 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
                     children: [
                       Text(
                         settingPanicKey ? "PANIC_BUFFER:" : "KEY_BUFFER:",
-                        style: TextStyle(fontSize: 10, color: settingPanicKey ? Colors.pink : const Color(0xFF00FBFF)),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: settingPanicKey
+                              ? Colors.pink
+                              : const Color(0xFF00FBFF),
+                        ),
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        _inputBuffer.isEmpty ? "________________" : "*" * _inputBuffer.length,
+                        _inputBuffer.isEmpty
+                            ? "________________"
+                            : "*" * _inputBuffer.length,
                         style: TextStyle(
                           fontSize: 22,
                           color: Colors.white,
-                          letterSpacing: _inputBuffer.length > 10 ? 2.0 : 4.0,
+                          letterSpacing:
+                              _inputBuffer.length > 10 ? 2.0 : 4.0,
                         ),
                       ),
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 30),
-
                 if (isMobile)
                   CustomKeyboard(
                     onTextInput: (val) => setState(() => _inputBuffer += val),
                     onDelete: () {
                       if (_inputBuffer.isNotEmpty) {
-                        setState(() => _inputBuffer = _inputBuffer.substring(0, _inputBuffer.length - 1));
+                        setState(() => _inputBuffer =
+                            _inputBuffer.substring(0, _inputBuffer.length - 1));
                       }
                     },
                     onSubmit: _handleAuth,
@@ -453,11 +518,15 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
                     autofocus: true,
                     obscureText: true,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white, letterSpacing: 8),
+                    style: const TextStyle(
+                        color: Colors.white, letterSpacing: 8),
                     decoration: const InputDecoration(
                       hintText: "TYPE_KEY_AND_PRESS_ENTER",
-                      hintStyle: TextStyle(color: Colors.white24, fontSize: 12),
-                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF00FBFF))),
+                      hintStyle:
+                          TextStyle(color: Colors.white24, fontSize: 12),
+                      focusedBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: Color(0xFF00FBFF)),
+                      ),
                     ),
                     onChanged: (val) => setState(() => _inputBuffer = val),
                     onSubmitted: (val) {
@@ -465,27 +534,30 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
                       _handleAuth();
                     },
                   ),
-
                 const SizedBox(height: 20),
-
                 if (isMobile && !isFirstTime! && _canCheckBio) ...[
                   const Divider(color: Colors.white10, height: 40),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.fingerprint, color: Color(0xFF00FBFF), size: 50),
-                        onPressed: () => _handleBiometricAuth(triggerPanic: false),
+                        icon: const Icon(Icons.fingerprint,
+                            color: Color(0xFF00FBFF), size: 50),
+                        onPressed: () =>
+                            _handleBiometricAuth(triggerPanic: false),
                       ),
                       const SizedBox(width: 50),
                       IconButton(
-                        icon: const Icon(Icons.gpp_maybe, color: Colors.white24, size: 50),
+                        icon: const Icon(Icons.gpp_maybe,
+                            color: Colors.white24, size: 50),
                         onPressed: null,
-                        onLongPress: () => _handleBiometricAuth(triggerPanic: true),
+                        onLongPress: () =>
+                            _handleBiometricAuth(triggerPanic: true),
                       ),
                     ],
                   ),
-                  const Text("BIO_AUTH_READY", style: TextStyle(fontSize: 10, color: Colors.grey)),
+                  const Text("BIO_AUTH_READY",
+                      style: TextStyle(fontSize: 10, color: Colors.grey)),
                 ]
               ],
             ),
@@ -495,4 +567,3 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     );
   }
 }
-
