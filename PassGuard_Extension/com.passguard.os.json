@@ -1,0 +1,9 @@
+{
+  "name": "com.passguard.os",
+  "description": "PassGuard OS Native Messaging Host",
+  "path": "<path to native host binary>",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://<ID EXTENSION>/"
+  ]
+}

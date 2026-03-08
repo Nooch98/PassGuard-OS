@@ -1,0 +1,182 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #0a0a0e;
+  color: #f2f2f2;
+  width: 360px;
+}
+
+.container {
+  padding: 14px;
+}
+
+.header,
+.row,
+.actions,
+.credential-actions,
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header {
+  margin-bottom: 12px;
+}
+
+.header h1,
+.panel-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.panel {
+  border: 1px solid #2a2a35;
+  background: #15151d;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.row {
+  margin-bottom: 8px;
+  gap: 10px;
+}
+
+.row:last-child {
+  margin-bottom: 0;
+}
+
+.label {
+  color: #8e8ea0;
+  font-size: 12px;
+}
+
+.value {
+  color: #ffffff;
+  font-size: 12px;
+  text-align: right;
+  word-break: break-all;
+}
+
+.security-note {
+  margin: 0 0 12px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #1a2230;
+  color: #b8d4ff;
+  font-size: 12px;
+  line-height: 1.4;
+  border: 1px solid #243246;
+}
+
+.credentials-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.credential-item {
+  background: #1d1d28;
+  border: 1px solid #2c2c3a;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.credential-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.credential-meta {
+  color: #b8b8c7;
+  font-size: 12px;
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.credential-origin {
+  color: #8e8ea0;
+  font-size: 11px;
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+
+.credential-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.actions {
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.btn.small {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.btn.primary {
+  background: #00d9ff;
+  color: #000;
+}
+
+.btn.secondary {
+  background: #232332;
+  color: #fff;
+}
+
+.btn.danger {
+  background: #d83b3b;
+  color: #fff;
+}
+
+.btn.copy {
+  background: #2a2f3d;
+  color: #fff;
+}
+
+.empty {
+  color: #8e8ea0;
+  font-size: 12px;
+}
+
+.message {
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.message.hidden {
+  display: none;
+}
+
+.message.info {
+  background: #1a2230;
+  color: #b8d4ff;
+}
+
+.message.success {
+  background: #17271d;
+  color: #93f0ad;
+}
+
+.message.error {
+  background: #2d1717;
+  color: #ffb0b0;
+}
