@@ -325,7 +325,13 @@ This software is provided "as is" for personal use and educational purposes.
 ## FAQ
 <details>
 <summary><b>Is my data sent to the cloud?</b></summary>
-    No. PassGuard OS is 100% offline. Your data never leaves your device unless you explicitly export it (QR, steganography, CSV). There are no analytics, no telemetry, no network calls.
+    <br>
+    PassGuard OS is an <i>offline-first</i> application. Your sensitive vault data never leaves your device unless you explicitly export it. 
+    <ul>
+        <li><b>Privacy Note:</b> The app occasionally fetches website icons (favicons) from external APIs to improve UI. No credential or vault data is involved in these requests.</li>
+        <li><b>Extension Bridge:</b> The optional browser extension communicates with the app locally via <i>Native Messaging</i> over <i>localhost</i>.</li>
+        <li><b>Vault Security:</b> Crucially, <b>the browser extension never has direct access to your vault</b>. All credential requests are handled exclusively by the PassGuard OS desktop application, which manages the decrypted vault in memory and provides only the requested data for the active domain.</li>
+    </ul>
 </details>
 <details>
 <summary><b>What if I forget my master password?</b></summary>
