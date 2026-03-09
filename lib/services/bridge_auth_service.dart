@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:path_provider/path_provider.dart';
 
 class BridgeAuthService {
   BridgeAuthService._();
@@ -57,6 +58,11 @@ class BridgeAuthService {
   }
 
   Future<File> _tokenFile() async {
+    if (Platform.isAndroid || Platform.isIOS) {
+      final dir = await getApplicationDocumentsDirectory();
+      return File('${dir.path}/bridge_token');
+    }
+
     if (Platform.isWindows) {
       final appData = Platform.environment['APPDATA'] ??
           '${Platform.environment['USERPROFILE']}\\AppData\\Roaming';
@@ -68,7 +74,7 @@ class BridgeAuthService {
       return File('$home/.config/PassGuardOS/bridge_token');
     }
 
-    final home = Platform.environment['HOME'] ?? '.';
-    return File('$home/.passguard_bridge_token');
+    final dir = await getApplicationSupportDirectory();
+    return File('${dir.path}/.passguard_bridge_token');
   }
 }
