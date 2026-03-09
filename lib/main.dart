@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'screens/auth_wrapper.dart';
@@ -7,9 +8,12 @@ import 'services/bridge_auth_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   await BridgeAuthService.instance.initialize();
-  await LocalBridgeService.start();
+
+  if (Platform.isWindows || Platform.isLinux) {
+    await LocalBridgeService.start();
+  } else {
+  }
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -189,3 +193,4 @@ class PasswordApp extends StatelessWidget {
     );
   }
 }
+
