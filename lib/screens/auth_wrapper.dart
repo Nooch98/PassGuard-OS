@@ -88,9 +88,18 @@ class _AuthWrapperState extends State<AuthWrapper>
   }
 
   Future<void> _checkStatus() async {
-    bool first = await AuthService.isFirstTime();
-    if (mounted) {
-      setState(() => isFirstTime = first);
+    try {
+
+      bool first = await AuthService.isFirstTime().timeout(
+        const Duration(seconds: 3), 
+        onTimeout: () => true,
+      );
+      
+      if (mounted) {
+        setState(() => isFirstTime = first);
+      }
+    } catch (e) {
+      if (mounted) setState(() => isFirstTime = false);
     }
   }
 
