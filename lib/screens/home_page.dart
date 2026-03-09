@@ -1,3 +1,22 @@
+/*
+|--------------------------------------------------------------------------
+| PassGuard OS - HomePage
+|--------------------------------------------------------------------------
+| Description:
+|   Main application interface displaying stored accounts.
+|
+| Responsibilities:
+|   - Render password list
+|   - Display TOTP codes
+|   - Trigger security audit
+|   - Handle user interactions
+|
+| Performance Notes:
+|   - Sensitive data is decrypted lazily
+|   - TOTP secrets are cached in memory only
+|--------------------------------------------------------------------------
+*/
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:passguard/screens/identities_vault_screen.dart';
@@ -1964,6 +1983,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _showRecoveryManager(int accountId, String platform) async {
     final db = await DBHelper.database;
+    final masterKeyBytes = widget.masterKey;
 
     Future<List<Map<String, dynamic>>> loadCodes() async {
       return await db.query('recovery_codes', where: 'account_id = ?', whereArgs: [accountId]);
@@ -1980,12 +2000,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => SafeArea(
           child: Container(
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 16,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-            ),
+            padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: MediaQuery.of(context).viewInsets.bottom + 16),
             height: MediaQuery.of(context).size.height * 0.6,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2094,109 +2109,72 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     future: loadCodes(),
                     builder: (context, snapshot) {
                       if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                        return const Center(
-                          child: Text("NO_CODES_IMPORTED", 
-                                     style: TextStyle(color: Colors.white24, fontSize: 10))
-                        );
+                        return const Center(child: Text("NO_CODES_IMPORTED", style: TextStyle(color: Colors.white24, fontSize: 10)));
                       }
                       return ListView.builder(
                         itemCount: snapshot.data!.length,
                         itemBuilder: (context, i) {
-                          final code = snapshot.data![i];
-                          bool isUsed = code['is_used'] == 1;
-                          final rawCode = code['code'];
+                          final codeEntry = snapshot.data![i];
+                          final String rawCode = codeEntry['code'] ?? "";
+                          final bool isUsed = codeEntry['is_used'] == 1;
 
-                          String displayCode = 'ERROR_LOADING_CODE';
-                          bool isEncrypted = false;
-                          
-                          if (rawCode != null && rawCode is String) {
-                            bool looksEncrypted = rawCode.contains('U2FsdGVk') || 
-                                                  rawCode.length > 50 ||
-                                                  !RegExp(r'^[A-Za-z0-9\-]+$').hasMatch(rawCode);
-                            
-                            if (looksEncrypted) {
-                              try {
-                                EncryptionService.decrypt(combinedText: rawCode, masterKeyBytes: widget.masterKey,);
-                                isEncrypted = true;
-                              } catch (e) {
-                                displayCode = 'DECRYPTION_ERROR';
-                                isEncrypted = false;
+                          final bool isEncryptedFormat = rawCode.contains('.');
+                          String displayCode = rawCode;
+                          bool isDecryptionError = false;
+
+                          if (isEncryptedFormat) {
+                            try {
+                              displayCode = EncryptionService.decrypt(
+                                combinedText: rawCode,
+                                masterKeyBytes: masterKeyBytes,
+                              );
+                              if (displayCode.startsWith("ERROR:")) {
+                                isDecryptionError = true;
                               }
-                            } else {
-                              displayCode = rawCode;
-                              isEncrypted = false;
+                            } catch (e) {
+                              isDecryptionError = true;
+                              displayCode = "DECRYPTION_ERROR";
                             }
-                          } else {
-                            displayCode = 'INVALID_CODE_DATA';
                           }
                           
                           return ListTile(
-                            dense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                            leading: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  isEncrypted ? Icons.lock : Icons.lock_open,
-                                  color: isEncrypted ? const Color(0xFF00FF00) : Colors.orange,
-                                  size: 16,
-                                ),
-                              ],
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                          leading: Icon(
+                            isEncryptedFormat ? Icons.lock : Icons.lock_open,
+                            color: isDecryptionError ? Colors.red : (isEncryptedFormat ? const Color(0xFF00FF00) : Colors.orange),
+                            size: 16,
+                          ),
+                          title: Text(
+                            isDecryptionError ? "!!! DECRYPTION_ERROR !!!" : displayCode,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 13,
+                              color: isUsed ? Colors.white24 : (isDecryptionError ? Colors.red : Colors.white),
+                              decoration: isUsed ? TextDecoration.lineThrough : null,
                             ),
-                            title: Text(
-                              displayCode,
-                              style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: displayCode.contains('ERROR') || displayCode.contains('INVALID') ? 10 : 13,
-                                  color: isUsed 
-                                    ? Colors.white24 
-                                    : (displayCode.contains('ERROR') || displayCode.contains('INVALID')
-                                        ? Colors.red 
-                                        : Colors.white),
-                                  decoration: isUsed ? TextDecoration.lineThrough : null
-                              ),
-                            ),
-                            subtitle: !isEncrypted && !displayCode.contains('ERROR') && !displayCode.contains('INVALID')
-                              ? const Text(
-                                  'NOT_ENCRYPTED - Tap migrate button above',
-                                  style: TextStyle(color: Colors.orange, fontSize: 9),
-                                )
-                              : null,
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (!displayCode.contains('ERROR') && !displayCode.contains('INVALID'))
-                                  IconButton(
-                                    icon: const Icon(Icons.copy, color: Color(0xFF00FBFF), size: 18),
-                                    tooltip: "COPY_CODE",
-                                    onPressed: () {
-                                      Clipboard.setData(ClipboardData(text: displayCode));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('RECOVERY_CODE_COPIED'),
-                                          backgroundColor: Color(0xFF00FBFF),
-                                          duration: Duration(seconds: 1),
-                                          behavior: SnackBarBehavior.floating,
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                Checkbox(
-                                    activeColor: const Color(0xFFFF00FF),
-                                    checkColor: Colors.black,
-                                    value: isUsed,
-                                    onChanged: (val) async {
-                                      await db.update(
-                                          'recovery_codes',
-                                          {'is_used': val! ? 1 : 0},
-                                          where: 'id = ?',
-                                          whereArgs: [code['id']]
-                                      );
-                                      setModalState(() {});
-                                    }
-                                ),
+                          ),
+                          subtitle: !isEncryptedFormat 
+                            ? const Text('NOT_ENCRYPTED - Tap migrate button above', style: TextStyle(color: Colors.orange, fontSize: 9)) 
+                            : null,
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (!isDecryptionError)
                                 IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                                  icon: const Icon(Icons.copy, color: Color(0xFF00FBFF), size: 18),
+                                  onPressed: () => Clipboard.setData(ClipboardData(text: displayCode)),
+                                ),
+                              Checkbox(
+                                activeColor: const Color(0xFFFF00FF),
+                                value: isUsed,
+                                onChanged: (val) async {
+                                  await db.update('recovery_codes', {'is_used': val! ? 1 : 0}, where: 'id = ?', whereArgs: [codeEntry['id']]);
+                                  setModalState(() {});
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
                                   tooltip: "DELETE_NODE",
                                   onPressed: () async {
                                     bool? confirmDelete = await showDialog<bool>(
@@ -2233,7 +2211,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       await db.delete(
                                           'recovery_codes',
                                           where: 'id = ?',
-                                          whereArgs: [code['id']]
+                                          whereArgs: [codeEntry['id']]
                                       );
                                       setModalState(() {});
                                       
