@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "PassGuard OS",
+  "version": "0.1.0",
+  "description": "Offline browser integration for PassGuard OS via native messaging.",
+  "permissions": [
+    "nativeMessaging",
+    "activeTab",
+    "tabs",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "action": {
+    "default_title": "PassGuard OS",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "passguard-os@passguard.com"
+    }
+  }
+}
