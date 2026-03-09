@@ -11,6 +11,33 @@
 ![badge](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Nooch98/PassGuard-OS)
 
+## 📑 Table of Contents
+
+- [What is PassGuard OS?](#what-is-passguard-os)
+    - [Why PassGuard OS?](#why-passguard-os)
+- [Features](#features)
+    - [Security Features](#security-features)
+    - [Password Management](#password-management)
+    - [Chrome/Firefox Extension (OPTIONAL)](#chromefirefox-extension-optional)
+    - [Backup & Sync](#backup--sync)
+    - [Additional Features](#additional-features)
+- [Usage](#usage)
+    - [First Launch](#first-launch)
+    - [Adding a Password](#adding-a-password)
+    - [Enabling 2FA](#enabling-2fa)
+    - [Device-to-Device Sync (QR)](#device-to-device-sync-qr)
+    - [Cold Storage Backup (Steganography)](#cold-storage-backup-steganography)
+- [Security](#security)
+    - [Encryption Architecture](#encryption-architecture)
+    - [Cryptography Details](#cryptography-details)
+    - [What PassGuard OS Store & How](#what-passguard-os-store--how)
+    - [Security Audit](#security-audit)
+    - [Threat Model](#threat-model)
+    - [Best Practices](#best-practices)
+- [Priority Areas for v1.x](#priority-areas-for-v1x)
+- [Disclaimer](#disclaimer)
+- [FAQ](#faq)
+
 ## What is PassGuard OS?
 
 PassGuard OS is a cross-Platform, offline password manager designed for users who take their digital security seriously. Unlike cloud-based solutions, your data never leaves your devices unless you explicitly export it.
@@ -63,7 +90,7 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
     * Encrypted notes per entry
     * Password history (last 5 changes)
  
-### Chrome Extension (OPTIONAL)
+### Chrome/Firefox Extension (OPTIONAL)
 Optional browser extension via secure local bridge
 
 The browser extension allows:
@@ -114,6 +141,8 @@ On Windows the registry key is typically:
 HKEY_CURRENT_USER\Software\Google\Chrome\NativeMessagingHosts\com.passguard.os
 ```
 pointing to the path of `com.passguard.os.json`.
+
+You can also use the `Register_Extension_windows.ps1` script for Windows by providing the path to the `com.passguard.os.json` file when prompted, and it will be added automatically.
 
 ### PassGuard NativeHost
 You need to extract `passguard_native_host`dir from the PassGuard-OS directory.
