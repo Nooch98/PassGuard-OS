@@ -91,7 +91,7 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
     * Password history (last 5 changes)
  
 ### Chrome/Firefox Extension (OPTIONAL)
-Optional browser extension via secure local bridge
+Optional browser extension via secure local bridge. The extension for **Firefox is officially signed by Mozilla**, ensuring security and seamless installation.
 
 The browser extension allows:
 * Autofill login credentials
@@ -123,6 +123,8 @@ Security design:
 https://github.com/user-attachments/assets/7a037229-5e2b-4558-850f-30d6a9c2ad13
 
 The file `com.passguard.os.json` is located in the extension directory.
+
+**com.passguard.os.json for Chrome**
 ```json
 {
   "name": "com.passguard.os",
@@ -131,6 +133,20 @@ The file `com.passguard.os.json` is located in the extension directory.
   "type": "stdio",
   "allowed_origins": [
     "chrome-extension://<HERE YOU NEED PUT THE EXTENSION ID ON CHROME>/"
+  ]
+}
+```
+**com.passguard.os.json for Firefox**
+
+If you use the package already signed by Mozilla (recommended), do not modify `allowd_extensions`, only modify the path field.
+```json
+{
+  "name": "com.passguard.os",
+  "description": "PassGuard OS Native Messaging Host",
+  "path": "<path to native host binary passguardnativehost.exe>",
+  "type": "stdio",
+  "allowed_extensions": [
+    "passguard-os@passguard.com"
   ]
 }
 ```
