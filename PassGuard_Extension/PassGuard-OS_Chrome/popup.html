@@ -2,24 +2,25 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PassGuard OS</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="container">
+    <main class="container" role="main">
       <header class="header">
         <h1>PassGuard OS</h1>
-        <button id="refreshBtn" class="btn secondary">Refresh</button>
+        <button id="refreshBtn" class="btn secondary" aria-label="Refresh status">Refresh</button>
       </header>
 
-      <section class="panel">
+      <section class="panel" aria-live="polite">
         <div class="row">
           <span class="label">Status</span>
-          <span id="statusText" class="value">Checking...</span>
+          <span id="statusText" class="value loading">Checking...</span>
         </div>
         <div class="row">
           <span class="label">Origin</span>
-          <span id="originText" class="value">-</span>
+          <span id="originText" class="value" title="Current page domain">-</span>
         </div>
         <div class="row">
           <span class="label">Session</span>
@@ -32,12 +33,11 @@
           <h2>Credentials</h2>
         </div>
 
-        <div class="security-note">
-          Autofill is convenient, but manual copy may be safer on unusual or
-          sensitive login pages.
+        <div class="security-note" role="note">
+          Autofill is convenient, but manual copy may be safer on sensitive sites.
         </div>
 
-        <div id="credentialsList" class="credentials-list">
+        <div id="credentialsList" class="credentials-list" role="list">
           <div class="empty">No data loaded yet.</div>
         </div>
       </section>
@@ -47,7 +47,7 @@
         <button id="lockBtn" class="btn danger">Lock Vault</button>
       </section>
 
-      <section id="messageBox" class="message hidden"></section>
+      <section id="messageBox" class="message hidden" aria-live="assertive"></section>
     </main>
 
     <script src="popup.js"></script>
