@@ -1,17 +1,13 @@
 const NATIVE_HOST_NAME = "com.passguard.os";
 
 function sendNativeMessage(payload) {
-  console.log("[PassGuard] sendNativeMessage payload:", payload);
 
   return new Promise((resolve, reject) => {
     chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, payload, (response) => {
       if (chrome.runtime.lastError) {
-        console.error("[PassGuard] native error:", chrome.runtime.lastError.message);
         reject(new Error(chrome.runtime.lastError.message));
         return;
       }
-
-      console.log("[PassGuard] native response:", response);
 
       if (!response) {
         reject(new Error("EMPTY_NATIVE_RESPONSE"));
@@ -25,7 +21,6 @@ function sendNativeMessage(payload) {
 
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  console.log("[PassGuard] active tabs:", tabs);
   return tabs[0] || null;
 }
 
@@ -33,14 +28,43 @@ function normalizeOrigin(url) {
   try {
     return new URL(url).origin;
   } catch (e) {
-    console.error("[PassGuard] normalizeOrigin failed:", e);
     return "";
   }
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("[PassGuard] onMessage:", message);
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === "fill-credentials") {
+    
+    try {
+      const tab = await getActiveTab();
+      if (!tab?.id) {
+        return;
+      }
+      const origin = normalizeOrigin(tab.url);
+      const rawResponse = await sendNativeMessage({
+        action: "get_credentials",
+        origin: origin
+      });
+      const credentialObject = rawResponse?.credentials?.[0];
+      if (credentialObject && credentialObject.username && credentialObject.password) {
+        try {
+          const response = await chrome.tabs.sendMessage(tab.id, {
+            type: "PG_FILL_FORM",
+            credential: {
+              username: credentialObject.username,
+              password: credentialObject.password
+            }
+          });
+        } catch (sendMessageError) {
+        }
+      } else {
+      }
+    } catch (err) {
+    }
+  }
+});
 
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
       switch (message?.type) {
@@ -100,7 +124,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: "UNKNOWN_MESSAGE_TYPE" });
       }
     } catch (err) {
-      console.error("[PassGuard] background failure:", err);
       sendResponse({
         ok: false,
         error: err?.message || "UNKNOWN_BACKGROUND_ERROR",
