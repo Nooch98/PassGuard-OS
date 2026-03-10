@@ -127,7 +127,7 @@ https://github.com/user-attachments/assets/7a037229-5e2b-4558-850f-30d6a9c2ad13
 
 The file `com.passguard.os.json` is located in the extension directory.
 
-**com.passguard.os.json for Chrome**
+**com.passguard.os.json for Chrome/Brave/Edge/Opera GX**
 ```json
 {
   "name": "com.passguard.os",
@@ -135,7 +135,7 @@ The file `com.passguard.os.json` is located in the extension directory.
   "path": "<YOUR PATH TO passguardnativehost.exe>",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://<HERE YOU NEED PUT THE EXTENSION ID ON CHROME>/"
+    "chrome-extension://<ID-EXTENSION>/"
   ]
 }
 ```
