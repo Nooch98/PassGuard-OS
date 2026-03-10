@@ -98,6 +98,9 @@ The browser extension allows:
 * Manual password copy
 * Lock vault from browser
 * It only provides the credentials for that domain.
+* Use shortcuts to autofill:
+    - Default: `CTRL + SHIFT + L`
+    - MacOS: `COMMAND + SHIFT + L`
 
 The extension **never accesses the vault directly**.
 
