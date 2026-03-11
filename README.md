@@ -299,6 +299,35 @@ Encrypted SQLite Fields
 > PassGuard OS encrypts sensitive fields individually instead of encrypting the entire SQLite database file.
 > This design allows selective decryption and improves performance while ensuring that all sensitive data remains cryptographically protected.
 
+### Seamless Migration Engine
+The following diagram illustrates how the application automatically handles data migration across different encryption versions (v1-v4) on-the-fly:
+
+```mermaid
+graph TD
+    %% Estilos mejorados para alto contraste
+    classDef process fill:#3498db,stroke:#2980b9,stroke-width:2px,color:#ffffff;
+    classDef database fill:#27ae60,stroke:#1e8449,stroke-width:2px,color:#ffffff;
+    classDef legacy fill:#f39c12,stroke:#d35400,stroke-width:2px,color:#ffffff;
+
+    Start((Start: Read)) --> Check{Check Prefix}
+    
+    Check -- "v4" --> DecryptV4[Decrypt v4]
+    Check -- "v1/v2/v3" --> Legacy[Derive Legacy Key]
+    
+    Legacy --> DecryptLegacy[Decrypt Legacy]
+    DecryptLegacy --> Upgrade[Trigger Upgrade]
+    Upgrade --> EncryptV4[Encrypt to v4]
+    EncryptV4 --> SaveDB[(Save v4)]
+    
+    SaveDB --> DecryptV4
+    DecryptV4 --> Done((Access Data))
+
+    %% Aplicar estilos
+    class Start,Done process;
+    class SaveDB database;
+    class Legacy,DecryptLegacy,Upgrade,EncryptV4 legacy;
+```
+
 ### Cryptography Details
 
 • Key Derivation: PBKDF2-HMAC-SHA256  
@@ -307,7 +336,7 @@ Encrypted SQLite Fields
 • Encryption: AES-256-GCM  
 • Nonce: 12 bytes random per encryption  
 • Authentication: Built into GCM mode  
-• Random generator: Dart Random.secure() (CSPRNG)  
+• Random generator: Dart Random.secure() (CSPRNG) 
 
 ### What PassGuard OS Store & How
 
@@ -334,21 +363,34 @@ Before releasing this as v1.0, the following measures were taken:
 > While this app implements strong security practices, it has not been professionally audited. Use at your own discretion.
 
 ### Threat Model
-PassGuard OS protects against:
+PassGuard OS is a personal project following a Zero-Knowledge and Offline-First model. This threat model defines the security boundaries of the current implementation:
 
-* Physical device theft (encrypted + auto-lock)
-* Reduces exposure window through session timeout and memory cleanup
-* Coercion (panic mode)
-* Cloud breaches (offline-only)
+**Mitigated Attack Vectors**
 
-PassGuard OS does NOT protect against:
+* **Physical Theft**: Protected by full-vault AES-256-GCM encryption + PBKDF2 hashing.
+* **Cloud/Network Breaches**: Completely mitigated (No network egress points).
+* **Local IPC/Extension Attacks**: Mitigated via per-session authentication tokens and origin validation.
+* **Duress/Coercion**: Mitigated via Panic Protocol (immediate destruction of the local vault).
 
-* Keyloggers on compromised systems
-* Screen recording malware
-* Full device compromise
-* Physical coercion if unlocked
-* Memory forensic attacks while unlocked
-* Advanced persistent threats (APTs)
+**Known Limitations**
+
+* **System Compromise**: If the host OS is compromised (Root/Kernel access), the vault must be considered compromised.
+* **Memory Forensic Attacks**: While I implement buffer clearing, hardware-level memory forensics while the vault is unlocked remain a risk.
+* **Input Interception (Keyloggers)**: Software-based keyloggers on the host OS can capture the Master Password during entry.
+* **Advanced Persistent Threats (APTs)**: Designed for personal use, not targeted state-level surveillance.
+
+```mermaid
+graph LR
+    User((User Input)) --> App[PassGuard OS Core]
+    App -->|Encrypted Memory| DB[(Encrypted SQLite)]
+    App <-->|Localhost / Auth Token| Bridge[Native Host]
+    Bridge <-->|Secure IPC| Ext[Browser Extension]
+    
+    style App fill:#3498db,stroke:#2980b9,color:#fff
+    style DB fill:#27ae60,stroke:#1e8449,color:#fff
+    style Bridge fill:#f39c12,stroke:#d35400,color:#fff
+    style Ext fill:#9b59b6,stroke:#8e44ad,color:#fff
+```
 
 ### Best Practices
 
