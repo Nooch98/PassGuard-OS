@@ -189,6 +189,35 @@ dart compile exe bin/passguard_main.dart -o PassGuardNativeHost
 chmod +x PassGuardNativeHost
 ```
 
+**CHROME BASED BROWSER**
+`com.passguard.os.json` format:
+```json
+{
+  "name": "com.passguard.os",
+  "description": "PassGuard OS Native Messaging Host",
+  "path": "<YOUR PATH TO passguardnativehost>",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://<ID-EXTENSION>/"
+  ]
+}
+```
+
+**FIREFOX BRWOSER**
+`com.passguard.os.json` format:
+```json
+{
+  "name": "com.passguard.os",
+  "description": "PassGuard OS Native Messaging Host",
+  "path": "<path to native host binary passguardnativehost>",
+  "type": "stdio",
+  "allowed_extensions": [
+    "passguard-os@passguard.com"
+  ]
+}
+```
+
+
 2. **Automatic Registration Script**
 I provide a bash script(`Register_Extension_Linux.sh`) to handle registration automatically across all major linux browsers:
     1. Download `Register_Extension_Linux.sh`.
