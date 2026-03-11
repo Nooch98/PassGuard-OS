@@ -20,6 +20,7 @@ class AuthService {
   static const String _sessionTimeoutKey = 'session_timeout_minutes';
   static const String _autoLockKey = 'auto_lock_enabled';
   static const String _screenshotProtectionKey = 'screenshot_protection';
+  
 
   static const FlutterSecureStorage _secure = FlutterSecureStorage();
 
@@ -30,6 +31,8 @@ class AuthService {
   static const IOSOptions _iOptions = IOSOptions(
     accessibility: KeychainAccessibility.first_unlock_this_device,
   );
+
+  static const LinuxOptions _lOptions = LinuxOptions();
 
   static Future<bool> isFirstTime() async {
     final prefs = await SharedPreferences.getInstance();
@@ -95,11 +98,11 @@ class AuthService {
       value: masterKey,
       aOptions: _aOptions,
       iOptions: _iOptions,
+      lOptions: _lOptions,
     );
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_bioEnabledKey, true);
-
     await prefs.remove(_bioKeyKey);
   }
 
@@ -127,6 +130,7 @@ class AuthService {
         key: _bioWrappedMasterKey,
         aOptions: _aOptions,
         iOptions: _iOptions,
+        lOptions: _lOptions,
       );
       if (v == null || v.isEmpty) return null;
       return v;
@@ -142,6 +146,7 @@ class AuthService {
       key: _bioWrappedMasterKey,
       aOptions: _aOptions,
       iOptions: _iOptions,
+      lOptions: _lOptions,
     );
   }
 
@@ -153,6 +158,7 @@ class AuthService {
       key: _bioWrappedMasterKey,
       aOptions: _aOptions,
       iOptions: _iOptions,
+      lOptions: _lOptions,
     );
   }
 
