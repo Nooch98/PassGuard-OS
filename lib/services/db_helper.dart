@@ -110,7 +110,7 @@ class DBHelper {
         notes TEXT,
         is_favorite INTEGER DEFAULT 0,
         password_history TEXT,
-        otp_meta TEXT,
+        otp_meta TEXT
       )
     ''');
 
@@ -195,3 +195,4 @@ class DBHelper {
     _database = null;
   }
 }
+
