@@ -190,6 +190,7 @@ chmod +x PassGuardNativeHost
 ```
 
 **CHROME BASED BROWSER**
+
 `com.passguard.os.json` format:
 ```json
 {
@@ -204,6 +205,7 @@ chmod +x PassGuardNativeHost
 ```
 
 **FIREFOX BRWOSER**
+
 `com.passguard.os.json` format:
 ```json
 {
