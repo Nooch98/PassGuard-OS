@@ -31,21 +31,6 @@ class LocalBridgeService {
   static const String host = '127.0.0.1';
   static const int port = 45491;
 
-  static final File _logFile =
-      File('${Directory.systemTemp.path}\\passguard_local_bridge.log');
-
-  static Future<void> _log(String message) async {
-    try {
-      final line =
-          '[${DateTime.now().toIso8601String()}] $message${Platform.lineTerminator}';
-
-      await _logFile.writeAsString(
-        line,
-        mode: FileMode.append,
-        flush: true,
-      );
-    } catch (_) {}
-  }
 
   static bool get isRunning => _server != null;
 
@@ -55,15 +40,11 @@ class LocalBridgeService {
     _server = await ServerSocket.bind(host, port, shared: false);
     _started = true;
 
-    await _log('BRIDGE_STARTED $host:$port');
-
     _server!.listen(
       _handleClient,
       onError: (Object error, StackTrace stackTrace) async {
-        await _log('BRIDGE_SERVER_ERROR $error');
       },
       onDone: () async {
-        await _log('BRIDGE_SERVER_DONE');
         _server = null;
         _started = false;
       },
@@ -72,7 +53,6 @@ class LocalBridgeService {
   }
 
   static Future<void> stop() async {
-    await _log('BRIDGE_STOP');
 
     try {
       await _server?.close();
@@ -83,79 +63,48 @@ class LocalBridgeService {
   }
 
   static Future<void> _handleClient(Socket client) async {
-    final sw = Stopwatch()..start();
-
     try {
-      await _log('BRIDGE_CLIENT_CONNECTED');
-
       final String requestText = await utf8.decoder
           .bind(client)
           .transform(const LineSplitter())
-          .first;
-
-      await _log('BRIDGE_REQUEST_RAW $requestText');
+          .first
+          .timeout(const Duration(seconds: 5), onTimeout: () => "");
 
       if (requestText.trim().isEmpty) {
-        await _writeResponse(client, {
-          'status': 'error',
-          'message': 'empty_request',
-        });
+        await _writeResponse(client, {'status': 'error', 'message': 'timeout_or_empty'});
         return;
       }
 
       final dynamic decoded = jsonDecode(requestText);
-
       if (decoded is! Map<String, dynamic>) {
-        await _writeResponse(client, {
-          'status': 'error',
-          'message': 'invalid_request_format',
-        });
+        await _writeResponse(client, {'status': 'error', 'message': 'invalid_format'});
         return;
       }
 
       final String? bridgeToken = decoded['bridge_token']?.toString();
       if (!BridgeAuthService.instance.isValid(bridgeToken)) {
-        await _log('BRIDGE_UNAUTHORIZED');
-        await _writeResponse(client, {
-          'status': 'error',
-          'message': 'unauthorized_bridge_client',
-        });
+        await _writeResponse(client, {'status': 'error', 'message': 'unauthorized'});
         return;
       }
 
       final dynamic payload = decoded['payload'];
       if (payload is! Map<String, dynamic>) {
-        await _writeResponse(client, {
-          'status': 'error',
-          'message': 'invalid_payload',
-        });
+        await _writeResponse(client, {'status': 'error', 'message': 'invalid_payload'});
         return;
       }
 
-      final Map<String, dynamic> response =
-          await BrowserHostService.instance.handleRequest(payload);
-
-      await _log(
-        'BRIDGE_RESPONSE in ${sw.elapsedMilliseconds}ms -> $response',
-      );
-
+      final Map<String, dynamic> response = await BrowserHostService.instance.handleRequest(payload);
+      
       await _writeResponse(client, response);
+      
     } catch (e) {
-      await _log('BRIDGE_HANDLE_ERROR $e');
-
       await _writeResponse(client, {
         'status': 'error',
         'message': 'bridge_request_failed',
         'details': e.toString(),
       });
     } finally {
-      try {
-        await client.flush();
-      } catch (_) {}
-
-      try {
-        await client.close();
-      } catch (_) {}
+      client.destroy();
     }
   }
 
