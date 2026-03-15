@@ -1,4 +1,4 @@
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, ProcessSignal, exit;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'screens/auth_wrapper.dart';
@@ -8,6 +8,7 @@ import 'services/bridge_auth_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _setupShutdownHooks();
   await BridgeAuthService.instance.initialize();
 
   if (Platform.isWindows || Platform.isLinux) {
@@ -30,6 +31,19 @@ void main() async {
   ]);
 
   runApp(const PasswordApp());
+}
+
+void _setupShutdownHooks() {
+  if (!Platform.isWindows) {
+    ProcessSignal.sigterm.watch().listen((_) => _shutdown());
+    ProcessSignal.sigint.watch().listen((_) => _shutdown());
+  }
+}
+
+Future<void> _shutdown() async {
+  await LocalBridgeService.stop();
+  await BridgeAuthService.instance.clear();
+  exit(0);
 }
 
 class PasswordApp extends StatelessWidget {
