@@ -14,17 +14,38 @@ class BridgeAuthService {
   String get token => _token ?? '';
 
   Future<void> initialize() async {
-    _token = _generateToken();
-
     final file = await _tokenFile();
+
+    if (await file.exists()) {
+      final existingToken = await file.readAsString();
+      if (existingToken.trim().isNotEmpty) {
+        _token = existingToken.trim();
+        return;
+      }
+    }
+
+    _token = _generateToken();
     await file.parent.create(recursive: true);
     await file.writeAsString(_token!, flush: true);
+
+    if (Platform.isLinux || Platform.isMacOS) {
+      await Process.run('chmod', ['600', file.path]);
+    }
   }
 
   bool isValid(String? incomingToken) {
-    if (_token == null || _token!.isEmpty) return false;
-    if (incomingToken == null || incomingToken.isEmpty) return false;
-    return incomingToken == _token;
+    if (_token == null || incomingToken == null) return false;
+
+    final incomingBytes = utf8.encode(incomingToken);
+    final validBytes = utf8.encode(_token!);
+    
+    if (incomingBytes.length != validBytes.length) return false;
+
+    int result = 0;
+    for (int i = 0; i < incomingBytes.length; i++) {
+      result |= incomingBytes[i] ^ validBytes[i];
+    }
+    return result == 0;
   }
 
   Future<void> rotate() async {
