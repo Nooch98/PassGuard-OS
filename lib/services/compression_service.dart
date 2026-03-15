@@ -44,9 +44,6 @@ class CompressionService {
   static Uint8List compressBytes(String data) {
     final bytes = utf8.encode(data);
     final compressed = GZipEncoder().encode(bytes);
-    if (compressed == null) {
-      throw Exception('COMPRESSION_FAILED');
-    }
     return Uint8List.fromList(compressed);
   }
 
@@ -193,8 +190,9 @@ class CompressionService {
     return ((originalSize - compressedSize) / originalSize) * 100;
   }
 
-  static bool fitsInQR(String base64Data, {int maxChars = defaultMaxQrChars}) {
-    return base64Data.length <= maxChars;
+  static bool fitsInQR(String base64Data, {bool allowChunks = true, int maxChunks = 10}) {
+    if (!allowChunks) return base64Data.length <= defaultMaxQrChars;
+    return base64Data.length <= (maxChunks * defaultMaxQrChars);
   }
 
   static double getSizeKB(String base64Data) => base64Data.length / 1024;
