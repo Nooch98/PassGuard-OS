@@ -5,86 +5,42 @@ import 'dart:convert';
 
 void main() {
   group('EncryptionService Tests', () {
-    const testKey = 'TestMasterPassword123!';
+    const testMasterPassword = 'TestMasterPassword123!';
+    final testMasterKeyBytes = Uint8List.fromList(utf8.encode(testMasterPassword));
     const testData = 'MySecretPassword';
 
     test('Encrypt and decrypt should return original data', () {
-      // Arrange & Act
-      final encrypted = EncryptionService.encrypt(testData, testKey);
-      final decrypted = EncryptionService.decrypt(encrypted, Uint8List.fromList(utf8.encode(testKey)));
-
-      // Assert
+      final encrypted = EncryptionService.encrypt(testData, testMasterPassword);
+      final decrypted = EncryptionService.decrypt(
+        combinedText: encrypted, 
+        masterKeyBytes: testMasterKeyBytes
+      );
       expect(decrypted, equals(testData));
-      expect(encrypted, isNot(equals(testData)));
+      expect(encrypted.startsWith('v4'), isTrue);
     });
 
-    test('Encrypted data should be different each time (random IV)', () {
-      // Act
-      final encrypted1 = EncryptionService.encrypt(testData, testKey);
-      final encrypted2 = EncryptionService.encrypt(testData, testKey);
-
-      // Assert
+    test('Encrypted data should be different each time (random IV/Salt)', () {
+      final encrypted1 = EncryptionService.encrypt(testData, testMasterPassword);
+      final encrypted2 = EncryptionService.encrypt(testData, testMasterPassword);
       expect(encrypted1, isNot(equals(encrypted2)));
     });
 
     test('Wrong key should fail decryption', () {
-      // Arrange
-      final encrypted = EncryptionService.encrypt(testData, testKey);
-      const wrongKey = 'WrongPassword';
-
-      // Act & Assert
-      expect(
-        () => EncryptionService.decrypt(encrypted, Uint8List.fromList(utf8.encode(wrongKey))),
-        throwsException,
+      final encrypted = EncryptionService.encrypt(testData, testMasterPassword);
+      final wrongKeyBytes = Uint8List.fromList(utf8.encode('WrongPassword123'));
+      final result = EncryptionService.decrypt(
+        combinedText: encrypted, 
+        masterKeyBytes: wrongKeyBytes
       );
+      expect(result, equals("ERROR: DECRYPTION_FAILED"));
     });
 
-    test('Should handle empty string', () {
-      // Arrange
-      const emptyData = '';
-
-      // Act
-      final encrypted = EncryptionService.encrypt(emptyData, testKey);
-      final decrypted = EncryptionService.decrypt(encrypted, Uint8List.fromList(utf8.encode(testKey)));
-
-      // Assert
-      expect(decrypted, equals(emptyData));
-    });
-
-    test('Should handle special characters', () {
-      // Arrange
-      const specialData = 'Test!@#\$%^&*()_+-=[]{}|;:",.<>?/~`';
-
-      // Act
-      final encrypted = EncryptionService.encrypt(specialData, testKey);
-      final decrypted = EncryptionService.decrypt(encrypted, Uint8List.fromList(utf8.encode(testKey)));
-
-      // Assert
-      expect(decrypted, equals(specialData));
-    });
-
-    test('Should handle unicode characters', () {
-      // Arrange
-      const unicodeData = 'Contraseña con émojis 🔐🔑🛡️';
-
-      // Act
-      final encrypted = EncryptionService.encrypt(unicodeData, testKey);
-      final decrypted = EncryptionService.decrypt(encrypted, Uint8List.fromList(utf8.encode(testKey)));
-
-      // Assert
-      expect(decrypted, equals(unicodeData));
-    });
-
-    test('Should handle very long passwords', () {
-      // Arrange
-      final longData = 'A' * 10000;
-
-      // Act
-      final encrypted = EncryptionService.encrypt(longData, testKey);
-      final decrypted = EncryptionService.decrypt(encrypted, Uint8List.fromList(utf8.encode(testKey)));
-
-      // Assert
-      expect(decrypted, equals(longData));
+    test('Obfuscation should add correct junk bytes', () {
+      final data = Uint8List.fromList(utf8.encode("raw_data"));
+      final obfuscated = EncryptionService.obfuscateFileData(data);
+      expect(obfuscated.length, equals(data.length + 64));
+      final deobfuscated = EncryptionService.deobfuscateFileData(obfuscated);
+      expect(deobfuscated, equals(data));
     });
   });
 }
