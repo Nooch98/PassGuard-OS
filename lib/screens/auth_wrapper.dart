@@ -452,6 +452,7 @@ class _AuthWrapperState extends State<AuthWrapper>
                   ),
                   textAlign: TextAlign.center,
                 ),
+                
                 if (sessionActive && !isFirstTime!)
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
