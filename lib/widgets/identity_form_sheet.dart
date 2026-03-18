@@ -791,8 +791,6 @@ class _IdentityFormSheetState extends State<IdentityFormSheet> {
   Future<void> _saveIdentity() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final String masterKeyString = base64Encode(widget.masterKey);
-
     String? encryptedCardNumber;
     String? encryptedCVV;
     String? encryptedDocNumber;
@@ -801,28 +799,28 @@ class _IdentityFormSheetState extends State<IdentityFormSheet> {
     if (_cardNumberController.text.isNotEmpty) {
       encryptedCardNumber = EncryptionService.encrypt(
         _cardNumberController.text,
-        masterKeyString,
+        widget.masterKey,
       );
     }
 
     if (_cvvController.text.isNotEmpty) {
       encryptedCVV = EncryptionService.encrypt(
         _cvvController.text,
-        masterKeyString,
+        widget.masterKey,
       );
     }
 
     if (_documentNumberController.text.isNotEmpty) {
       encryptedDocNumber = EncryptionService.encrypt(
         _documentNumberController.text,
-        masterKeyString,
+        widget.masterKey,
       );
     }
 
     if (_notesController.text.isNotEmpty) {
       encryptedNotes = EncryptionService.encrypt(
         _notesController.text,
-        masterKeyString,
+        widget.masterKey,
       );
     }
 
