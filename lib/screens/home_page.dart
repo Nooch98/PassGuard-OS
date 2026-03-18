@@ -119,7 +119,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _migrateRecoveryCodesToEncrypted() async {
     try {
       final db = await DBHelper.database;
-      final masterKeyString = String.fromCharCodes(widget.masterKey);
+      final masterKeyString = widget.masterKey;
 
       final List<Map<String, dynamic>> codes = await db.query('recovery_codes');
       
@@ -806,7 +806,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     return EncryptionService.encrypt(
       jsonData,
-      String.fromCharCodes(widget.masterKey)
+      widget.masterKey
     );
   }
 
@@ -1146,7 +1146,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       final String encryptedData = EncryptionService.encrypt(
           rawData,
-          utf8.decode(widget.masterKey)
+          widget.masterKey
       );
       
       final String compressedData = CompressionService.compressForQR(encryptedData);
@@ -1696,11 +1696,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   onPressed: () async {
                     if (platformC.text.isNotEmpty && passC.text.isNotEmpty) {
                       final db = await DBHelper.database;
-                      final String masterKeyAsString = String.fromCharCodes(widget.masterKey);
 
-                      final encryptedPass = EncryptionService.encrypt(passC.text, masterKeyAsString);
+                      final encryptedPass = EncryptionService.encrypt(passC.text, widget.masterKey);
                       final encryptedNotes = notesC.text.isNotEmpty
-                          ? EncryptionService.encrypt(notesC.text, masterKeyAsString)
+                          ? EncryptionService.encrypt(notesC.text, widget.masterKey)
                           : null;
 
                       final pepper = derivePepper(widget.masterKey);
@@ -1853,7 +1852,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
                 final db = await DBHelper.database;
 
-                final masterKeyString = utf8.decode(widget.masterKey);
+                final masterKeyString = widget.masterKey;
                 final encryptedSeed = EncryptionService.encrypt(cleanSecret, masterKeyString);
 
                 final metaJson = jsonEncode(parsed.meta.toJson());
@@ -2026,7 +2025,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
                         try {
                           final codes = await db.query('recovery_codes', where: 'account_id = ?', whereArgs: [accountId]);
-                          final masterKeyString = String.fromCharCodes(widget.masterKey);
+                          final masterKeyString = widget.masterKey;
                           int encrypted = 0;
                           int alreadyEncrypted = 0;
                           
@@ -2363,10 +2362,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
                             if (confirm == true) {
                               final db = await DBHelper.database;
-                              final String masterKeyAsString = String.fromCharCodes(widget.masterKey);
                               
                               for (var codeStr in codes) {
-                                final encryptedCode = EncryptionService.encrypt(codeStr, masterKeyAsString);
+                                final encryptedCode = EncryptionService.encrypt(codeStr, widget.masterKey);
                                 
                                 await db.insert('recovery_codes', {
                                   'account_id': accountId,
