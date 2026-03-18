@@ -191,7 +191,7 @@ class BrowserHostService {
       );
 
       if (decrypted.startsWith('ERROR:')) {
-        return null;
+        return null; 
       }
 
       return decrypted;
@@ -201,9 +201,10 @@ class BrowserHostService {
   }
 
   bool _looksEncrypted(String value) {
-    return value.startsWith('v4.') ||
-        value.startsWith('v3.') ||
-        value.startsWith('v2.');
+    return value.startsWith('v5.') || 
+           value.startsWith('v4.') ||
+           value.startsWith('v3.') ||
+           value.startsWith('v2.');
   }
 
   bool _matchesService({
