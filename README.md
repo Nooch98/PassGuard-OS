@@ -7,7 +7,7 @@
 ![badge](https://img.shields.io/badge/Flutter-3.38+-02569B?style=flat&logo=flutter)
 ![badge](https://img.shields.io/badge/License-MIT-green.svg?style=flat)
 ![badge](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Android-lightgrey?style=flat)
-![badge](https://img.shields.io/badge/Encryption-AES--256--GCM%20%7C%20PBKDF2-red?style=flat&logo=lock)
+![badge](https://img.shields.io/badge/Encryption-Argon2id-red?style=flat&logo=lock)
 ![badge](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Nooch98/PassGuard-OS)
 
@@ -45,7 +45,9 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 ### Why PassGuard OS?
 
 * **✅ Offline-First** - Core vault operations run locally without cloud dependency.
-* **✅ Encryption** - AES-256-GCM + PBKDF2-HMAC-SHA256 (200k iterations)
+* **✅ Encryption** - AES-256-GCM + Argon2id (v5) for superior GPU/ASIC resistance.
+* **✅ Memory Hardness** - Uses 64MB of RAM for key derivation to thwart brute-force attacks.
+* **✅ Optimized Memory** - Sensitive data is handled as Uint8List (bytes) to minimize RAM residency and string-pool leaks.
 * **✅ Zero Knowledge Architecture** - Master password is never stored in plaintext, Only a PBKDF2 verification hash is stored locally. Biometric unlock stores an encrypted vault key in the OS secure keystore.
 * **✅ Browser Integration** - Optional browser extension via secure local bridge
 * **✅ Panic Protocol** - Emergency data wipe with biometric trigger
@@ -58,8 +60,10 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 ### Security Features
 | Feature | Description |
 |--- |---
-| PBKDF2 Key Derivation | 200,000 iterations with random salt per encrypted value |
-| AES-256 Encryption | AES-256-GCM encryption for all stored data |
+| Argon2id | Memory-hard KDF (64MB, 3 iterations) |
+| PBKDF2 | Legacy support with 200,000 iterations for backward compatibility |
+| AES-256-GCM | Authenticated encryption for all stored data (Confidentiality + Integrity) |
+| Secure Byte Handling | Use of `Uint8List` instead of `String` for cryptographic operations
 | Biometric Lock | Fingerprint(recomended)/Face ID support (Android) |
 | Auto-Lock | Configurable session timeout (1-30 min) |
 | Panic Mode | Emergency wipe triggered by password or biometric |
@@ -285,15 +289,15 @@ Restore: Settings → Cold Storage → Extract From Image
 
 ### Encryption Architecture
 ```
-User Password
+User Password (Master)
      ↓
-PBKDF2-HMAC-SHA256 (200,000 iterations + random salt)
+Argon2id (64MB RAM, 3 Iterations, 4 Parallelism)
      ↓
-256-bit Encryption Key
+256-bit Derived Key (Handled as Bytes)
      ↓
 AES-256-GCM Encryption
      ↓
-Encrypted SQLite Fields
+Encrypted SQLite Fields (v5. Prefix)
 ```
 > [!WARNING]
 > PassGuard OS encrypts sensitive fields individually instead of encrypting the entire SQLite database file.
@@ -304,49 +308,52 @@ The following diagram illustrates how the application automatically handles data
 
 ```mermaid
 graph TD
-    %% Estilos mejorados para alto contraste
     classDef process fill:#3498db,stroke:#2980b9,stroke-width:2px,color:#ffffff;
     classDef database fill:#27ae60,stroke:#1e8449,stroke-width:2px,color:#ffffff;
     classDef legacy fill:#f39c12,stroke:#d35400,stroke-width:2px,color:#ffffff;
+    classDef modern fill:#00fbff,stroke:#00acc1,stroke-width:2px,color:#000000;
 
     Start((Start: Read)) --> Check{Check Prefix}
     
-    Check -- "v4" --> DecryptV4[Decrypt v4]
+    Check -- "v5" --> DecryptV5[Decrypt Argon2id]
+    Check -- "v4" --> DecryptV4[Decrypt PBKDF2]
     Check -- "v1/v2/v3" --> Legacy[Derive Legacy Key]
     
     Legacy --> DecryptLegacy[Decrypt Legacy]
-    DecryptLegacy --> Upgrade[Trigger Upgrade]
-    Upgrade --> EncryptV4[Encrypt to v4]
-    EncryptV4 --> SaveDB[(Save v4)]
+    DecryptV4 --> UpgradeTrigger{Action: Save?}
+    DecryptLegacy --> UpgradeTrigger
     
-    SaveDB --> DecryptV4
-    DecryptV4 --> Done((Access Data))
+    UpgradeTrigger -- "Yes" --> EncryptV5[Encrypt to v5 Argon2id]
+    EncryptV5 --> SaveDB[(Save v5 to DB)]
+    
+    DecryptV5 --> Done((Access Data))
+    UpgradeTrigger -- "No" --> Done
 
-    %% Aplicar estilos
     class Start,Done process;
     class SaveDB database;
-    class Legacy,DecryptLegacy,Upgrade,EncryptV4 legacy;
+    class Legacy,DecryptLegacy,DecryptV4 legacy;
+    class DecryptV5,EncryptV5 modern;
 ```
 
 ### Cryptography Details
 
-• Key Derivation: PBKDF2-HMAC-SHA256  
-• Iterations: 200,000  
-• Salt: 16 bytes random per encrypted value  
-• Encryption: AES-256-GCM  
-• Nonce: 12 bytes random per encryption  
-• Authentication: Built into GCM mode  
-• Random generator: Dart Random.secure() (CSPRNG) 
+* Key Derivation: Argon2id
+* Memory Cost: 64 MB
+* Iterations: 3
+* Parallelism: 4  
+* Encryption: AES-256-GCM
+* Data Handling: Native Byte buffers (`Uint8List`) to prevent "String-in-memory" persistence.
+* Random generator: Dart Random.secure() (CSPRNG)
 
 ### What PassGuard OS Store & How
 
 | Data Type | Storage | Encryption Status |
 |--- |--- |---
-| Master Password | NEVER STORED | Only PBKDF2 hash |
-| Account Passwords | SQLite | AES-256-GCM encrypted |
-| Notes | SQLite | AES-256-GCM encrypted |
-| 2FA Seeds (TOTP) | SQLite | AES-256-GCM encrypted |
-| Recovery Codes | SQLite | AES-256-GCM encrypted |
+| Master Password | NEVER STORED | Argon2id Verification Hash |
+| Account Passwords | SQLite | AES-256-GCM (v5 Argon2id) |
+| Notes | SQLite | AES-256-GCM (v5 Argon2id) |
+| 2FA Seeds (TOTP) | SQLite | AES-256-GCM (v5 Argon2id) |
+| Recovery Codes | SQLite | AES-256-GCM (v5 Argon2id) |
 | Biometric Key | OS Keystore | Platform-managed |
 
 ### Security Audit
