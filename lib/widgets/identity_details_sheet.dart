@@ -1,5 +1,43 @@
-import 'dart:convert';
+/*
+|--------------------------------------------------------------------------
+| PassGuard OS - IdentityDetailsSheet
+|--------------------------------------------------------------------------
+| Description:
+|   Secure bottom sheet used to display decrypted identity information.
+|   Supports multiple identity types (PERSON, CARD, LICENSE, PASSPORT)
+|   and renders sensitive fields with masking and copy protection logic.
+|
+| Responsibilities:
+|   - Decrypt identity fields in-memory using master key
+|   - Render categorized identity data (personal, financial, documents)
+|   - Provide optional field masking (e.g. card numbers)
+|   - Allow controlled clipboard copy
+|   - Display metadata timestamps (created / updated)
+|
+| Security Notes:
+|   - Decryption occurs only at render time (in-memory)
+|   - No decrypted values are persisted
+|   - Sensitive fields (card number, CVV, document numbers)
+|     are visually isolated and optionally masked
+|   - Clipboard copy is explicit and user-triggered
+|   - Errors during decryption fail safely (DECRYPTION_ERROR)
+|
+| UI Design:
+|   - Cyberpunk neon theme (cyan/pink accents)
+|   - Monospace font for secure fields
+|   - Mask/unmask toggle for financial data
+|   - Optimized for mobile bottom sheet interaction
+|
+| Important:
+|   This widget handles highly sensitive personal data.
+|   Any modifications must preserve:
+|     - In-memory-only decryption
+|     - No background caching
+|     - Explicit user-triggered exposure
+|--------------------------------------------------------------------------
+*/
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/identity_model.dart';
@@ -17,13 +55,16 @@ class IdentityDetailsSheet extends StatelessWidget {
 
   String _decryptField(String? encrypted) {
     if (encrypted == null || encrypted.isEmpty) return '';
-    try {
-      final String masterKeyAsBase64 = base64Encode(masterKey);
-      final Uint8List compatibleBytes = Uint8List.fromList(utf8.encode(masterKeyAsBase64));
 
-      return EncryptionService.decrypt(combinedText: encrypted, masterKeyBytes: compatibleBytes);
+    if (!encrypted.startsWith('v')) return encrypted;
+
+    try {
+      return EncryptionService.decrypt(
+        combinedText: encrypted, 
+        masterKeyBytes: masterKey
+      );
     } catch (e) {
-      debugPrint("Error decrypting in details: $e");
+      debugPrint("CRYPT_ERROR en IdentityDetails: $e");
       return 'DECRYPTION_ERROR';
     }
   }
@@ -149,22 +190,25 @@ class IdentityDetailsSheet extends StatelessWidget {
       if (identity.fullName != null) ...[
         _buildSection('PERSONAL INFORMATION', context),
         const SizedBox(height: 8),
-        _buildField('Full Name', identity.fullName!, context),
+        _buildField('Full Name', _decryptField(identity.fullName), context),
       ],
-      if (identity.email != null) _buildField('Email', identity.email!, context, canCopy: true),
-      if (identity.phone != null) _buildField('Phone', identity.phone!, context, canCopy: true),
-      if (identity.dateOfBirth != null) _buildField('Date of Birth', identity.dateOfBirth!, context),
+      if (identity.email != null) 
+        _buildField('Email', _decryptField(identity.email), context, canCopy: true),
+      if (identity.phone != null) 
+        _buildField('Phone', _decryptField(identity.phone), context, canCopy: true),
+      if (identity.dateOfBirth != null) 
+        _buildField('Date of Birth', _decryptField(identity.dateOfBirth), context),
       
       if (identity.address1 != null) ...[
         const SizedBox(height: 24),
         _buildSection('ADDRESS', context),
         const SizedBox(height: 8),
-        _buildField('Address', identity.address1!, context),
+        _buildField('Address', _decryptField(identity.address1), context),
       ],
-      if (identity.city != null) _buildField('City', identity.city!, context),
-      if (identity.state != null) _buildField('State', identity.state!, context),
-      if (identity.zipCode != null) _buildField('ZIP Code', identity.zipCode!, context),
-      if (identity.country != null) _buildField('Country', identity.country!, context),
+      if (identity.city != null) _buildField('City', _decryptField(identity.city), context),
+      if (identity.state != null) _buildField('State', _decryptField(identity.state), context),
+      if (identity.zipCode != null) _buildField('ZIP Code', _decryptField(identity.zipCode), context),
+      if (identity.country != null) _buildField('Country', _decryptField(identity.country), context),
     ];
   }
 
