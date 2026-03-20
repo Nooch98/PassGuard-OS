@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:typed_data';
-
 import 'db_helper.dart';
 import 'encryption_service.dart';
 import 'session_manager.dart';
@@ -38,6 +37,12 @@ class BrowserHostService {
       case 'get_credentials':
         return _handleGetCredentials(request);
 
+      case 'check_link_status':
+        return _handleCheckLinkStatus(request);
+
+      case 'force_link_origin':
+        return _handleForceLinkOrigin(request);
+
       default:
         return {
           'status': 'error',
@@ -48,7 +53,6 @@ class BrowserHostService {
 
   Map<String, dynamic> _handleStatus() {
     final remaining = SessionManager().remainingTime;
-
     return {
       'status': 'ok',
       'session_active': SessionService.instance.isSessionActive,
@@ -60,39 +64,65 @@ class BrowserHostService {
   Future<Map<String, dynamic>> _handleLockNow() async {
     SessionService.instance.hardLock();
     SessionManager().dispose();
-
     return {
       'status': 'ok',
       'message': 'vault_locked',
     };
   }
 
-  Future<Map<String, dynamic>> _handleGetCredentials(
-    Map<String, dynamic> request,
-  ) async {
+  Future<Map<String, dynamic>> _handleCheckLinkStatus(Map<String, dynamic> request) async {
+    try {
+      final String origin = _normalizeOrigin((request['origin'] ?? '').toString());
+      final String platform = (request['platform'] ?? '').toString().trim();
+
+      if (origin.isEmpty || platform.isEmpty) {
+        return {'status': 'error', 'message': 'invalid_data'};
+      }
+
+      return await DBHelper.handleSaveSuggestion({
+        'origin': origin,
+        'platform': platform,
+      });
+    } catch (e) {
+      await _log('ERROR_CHECK_LINK: $e');
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> _handleForceLinkOrigin(Map<String, dynamic> request) async {
+    try {
+      final int? accountId = _safeInt(request['account_id']);
+      final String origin = _normalizeOrigin((request['origin'] ?? '').toString());
+
+      if (accountId == null || origin.isEmpty) {
+        return {'status': 'error', 'message': 'missing_params'};
+      }
+
+      await DBHelper.forceLinkOrigin(accountId, origin);
+      await _log('LINK_SUCCESS account=$accountId origin=$origin');
+      
+      return {'status': 'ok', 'message': 'origin_updated'};
+    } catch (e) {
+      await _log('ERROR_FORCE_LINK: $e');
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> _handleGetCredentials(Map<String, dynamic> request) async {
     final sw = Stopwatch()..start();
 
     if (!SessionService.instance.isSessionActive) {
-      return {
-        'status': 'locked',
-        'message': 'vault_locked',
-      };
+      return {'status': 'locked', 'message': 'vault_locked'};
     }
 
     final String origin = (request['origin'] ?? '').toString().trim();
     if (origin.isEmpty) {
-      return {
-        'status': 'error',
-        'message': 'origin_required',
-      };
+      return {'status': 'error', 'message': 'origin_required'};
     }
 
     final Uint8List? masterKeyBytes = SessionService.instance.masterKeyBytesCopy;
     if (masterKeyBytes == null || masterKeyBytes.isEmpty) {
-      return {
-        'status': 'locked',
-        'message': 'session_key_missing',
-      };
+      return {'status': 'locked', 'message': 'session_key_missing'};
     }
 
     final String normalizedOrigin = _normalizeOrigin(origin);
@@ -109,45 +139,24 @@ class BrowserHostService {
     final List<Map<String, dynamic>> matches = [];
 
     for (final row in rows) {
-      final String? platform = _readMaybeEncryptedText(
-        row['platform'],
-        masterKeyBytes,
-      );
-
+      final String? platform = _readMaybeEncryptedText(row['platform'], masterKeyBytes);
       if (platform == null || platform.trim().isEmpty) continue;
 
       final bool matched = _matchesService(
         normalizedOrigin: normalizedOrigin,
+        originInDb: row['origin'],
         originTokens: originTokens,
         platformValue: platform,
       );
 
       if (!matched) continue;
 
-      final String? username = _readMaybeEncryptedText(
-        row['username'],
-        masterKeyBytes,
-      );
+      final String? username = _readMaybeEncryptedText(row['username'], masterKeyBytes);
+      final String? password = _readMaybeEncryptedText(row['password'], masterKeyBytes);
+      final String? otpSeed = _readMaybeEncryptedText(row['otp_seed'], masterKeyBytes);
+      final String? category = _readMaybeEncryptedText(row['category'], masterKeyBytes, allowPlainFallback: true);
 
-      final String? password = _readMaybeEncryptedText(
-        row['password'],
-        masterKeyBytes,
-      );
-
-      final String? otpSeed = _readMaybeEncryptedText(
-        row['otp_seed'],
-        masterKeyBytes,
-      );
-
-      final String? category = _readMaybeEncryptedText(
-        row['category'],
-        masterKeyBytes,
-        allowPlainFallback: true,
-      );
-
-      if ((username?.isEmpty ?? true) && (password?.isEmpty ?? true)) {
-        continue;
-      }
+      if ((username?.isEmpty ?? true) && (password?.isEmpty ?? true)) continue;
 
       matches.add({
         'id': row['id'],
@@ -162,10 +171,7 @@ class BrowserHostService {
     }
 
     SessionManager().activity();
-
-    await _log(
-      'GET_CREDENTIALS_DONE count=${matches.length} elapsed=${sw.elapsedMilliseconds}ms',
-    );
+    await _log('GET_CREDENTIALS_DONE count=${matches.length} elapsed=${sw.elapsedMilliseconds}ms');
 
     return {
       'status': 'ok',
@@ -174,53 +180,46 @@ class BrowserHostService {
     };
   }
 
-  String? _readMaybeEncryptedText(
-    Object? rawValue,
-    Uint8List masterKeyBytes, {
-    bool allowPlainFallback = true,
-  }) {
+  String? _readMaybeEncryptedText(Object? rawValue, Uint8List masterKeyBytes, {bool allowPlainFallback = true}) {
     if (rawValue == null) return null;
-
     final String text = rawValue.toString().trim();
     if (text.isEmpty) return null;
 
     if (_looksEncrypted(text)) {
-      final String decrypted = EncryptionService.decrypt(
-        combinedText: text,
-        masterKeyBytes: masterKeyBytes,
-      );
-
-      if (decrypted.startsWith('ERROR:')) {
-        return null; 
+      try {
+        final String decrypted = EncryptionService.decrypt(
+          combinedText: text,
+          masterKeyBytes: masterKeyBytes,
+        );
+        if (decrypted.startsWith('ERROR:')) return null;
+        return decrypted;
+      } catch (e) {
+        return null;
       }
-
-      return decrypted;
     }
-
     return allowPlainFallback ? text : null;
   }
 
   bool _looksEncrypted(String value) {
-    return value.startsWith('v5.') || 
-           value.startsWith('v4.') ||
-           value.startsWith('v3.') ||
-           value.startsWith('v2.');
+    return RegExp(r'^v\d+\.').hasMatch(value);
   }
 
   bool _matchesService({
     required String normalizedOrigin,
+    Object? originInDb,
     required List<String> originTokens,
     required String platformValue,
   }) {
     final String raw = platformValue.trim().toLowerCase();
     if (raw.isEmpty) return false;
 
-    final String normalizedPlatform = _normalizeOrigin(raw);
-    final List<String> platformTokens = _tokenizeHost(raw);
-
-    if (normalizedPlatform.isNotEmpty && normalizedPlatform == normalizedOrigin) {
-      return true;
+    if (originInDb != null) {
+      final String normDbOrigin = _normalizeOrigin(originInDb.toString());
+      if (normDbOrigin == normalizedOrigin) return true;
     }
+
+    final String normalizedPlatform = _normalizeOrigin(raw);
+    if (normalizedPlatform.isNotEmpty && normalizedPlatform == normalizedOrigin) return true;
 
     if (normalizedPlatform.isNotEmpty &&
         (normalizedOrigin.endsWith('.$normalizedPlatform') ||
@@ -228,36 +227,24 @@ class BrowserHostService {
       return true;
     }
 
-    final RegExp hostRegex = RegExp(
-      r'([a-z0-9-]+\.)+[a-z]{2,}',
-      caseSensitive: false,
-    );
-
+    final RegExp hostRegex = RegExp(r'([a-z0-9-]+\.)+[a-z]{2,}', caseSensitive: false);
     for (final match in hostRegex.allMatches(raw)) {
       final host = _normalizeOrigin(match.group(0) ?? '');
       if (host.isEmpty) continue;
-
-      if (host == normalizedOrigin ||
-          normalizedOrigin.endsWith('.$host') ||
-          host.endsWith('.$normalizedOrigin')) {
+      if (host == normalizedOrigin || normalizedOrigin.endsWith('.$host') || host.endsWith('.$normalizedOrigin')) {
         return true;
       }
     }
 
+    final List<String> platformTokens = _tokenizeHost(raw);
     int common = 0;
     for (final token in platformTokens) {
-      if (originTokens.contains(token)) {
-        common++;
-      }
+      if (originTokens.contains(token)) common++;
     }
 
-    if (common >= 1 && platformTokens.isNotEmpty && originTokens.isNotEmpty) {
-      return true;
-    }
+    if (common >= 1 && platformTokens.isNotEmpty && originTokens.isNotEmpty) return true;
 
-    if (raw.contains(normalizedOrigin) || normalizedOrigin.contains(raw)) {
-      return true;
-    }
+    if (raw.contains(normalizedOrigin) || normalizedOrigin.contains(raw)) return true;
 
     return false;
   }
@@ -266,21 +253,11 @@ class BrowserHostService {
     String value = raw.trim().toLowerCase();
     if (value.isEmpty) return '';
 
-    if (value.startsWith('http://')) value = value.substring(7);
-    if (value.startsWith('https://')) value = value.substring(8);
-    if (value.startsWith('www.')) value = value.substring(4);
+    value = value.replaceFirst(RegExp(r'^https?://'), '');
+    value = value.replaceFirst(RegExp(r'^www\.'), '');
 
-    final int slashIndex = value.indexOf('/');
-    if (slashIndex != -1) value = value.substring(0, slashIndex);
-
-    final int queryIndex = value.indexOf('?');
-    if (queryIndex != -1) value = value.substring(0, queryIndex);
-
-    final int hashIndex = value.indexOf('#');
-    if (hashIndex != -1) value = value.substring(0, hashIndex);
-
-    final int colonIndex = value.indexOf(':');
-    if (colonIndex != -1) value = value.substring(0, colonIndex);
+    final int firstSplit = value.indexOf(RegExp(r'[/:?#]'));
+    if (firstSplit != -1) value = value.substring(0, firstSplit);
 
     return value.trim();
   }
@@ -300,17 +277,7 @@ class BrowserHostService {
         .toList();
 
     const stopwords = {
-      'www',
-      'com',
-      'net',
-      'org',
-      'app',
-      'login',
-      'account',
-      'accounts',
-      'secure',
-      'auth',
-      'the',
+      'www', 'com', 'net', 'org', 'app', 'login', 'account', 'accounts', 'secure', 'auth', 'the',
     };
 
     return tokens.where((t) => !stopwords.contains(t)).toSet().toList();
