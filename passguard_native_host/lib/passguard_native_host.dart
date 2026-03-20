@@ -5,13 +5,13 @@
 | Native host for Chromium-based browsers.
 |
 | Responsibilities:
-| - Read length-prefixed JSON from stdin
-| - Forward request to PassGuard local bridge
+| - Read length-prefixed JSON from stdin (Chrome Protocol)
+| - Forward request to PassGuard local bridge (Socket)
 | - Return length-prefixed JSON to stdout
 |
 | Security:
 | - No network exposure beyond 127.0.0.1 loopback
-| - No direct vault access here
+| - No direct vault access here (Separation of Concerns)
 | - No session material stored here
 |--------------------------------------------------------------------------
 */
@@ -29,6 +29,7 @@ class NativeMessService {
   static const String _bridgeHost = '127.0.0.1';
   static const int _bridgePort = 45491;
 
+  /// Inicia el bucle de escucha de mensajes desde el navegador
   static Future<void> start() async {
     if (_started) return;
     _started = true;
@@ -54,6 +55,7 @@ class NativeMessService {
     );
   }
 
+  /// Procesa el mensaje binario recibido, lo convierte a JSON y lo envía al Bridge
   static Future<void> _handleRawMessage(Uint8List rawMessage) async {
     try {
       final String jsonString = utf8.decode(rawMessage);
@@ -67,6 +69,7 @@ class NativeMessService {
         return;
       }
 
+      // Reenviar al Bridge de la App (que procesa la lógica de búsqueda/guardado)
       final Map<String, dynamic> response = await _forwardToBridge(decoded);
       await _writeJson(response);
     } catch (e) {
@@ -78,34 +81,23 @@ class NativeMessService {
     }
   }
 
+  /// Lee el token de seguridad generado por la App para autenticar la extensión
   static Future<String?> _readBridgeToken() async {
     try {
+      File file;
       if (Platform.isWindows) {
         final appData = Platform.environment['APPDATA'] ??
             '${Platform.environment['USERPROFILE']}\\AppData\\Roaming';
-
-        final file = File('$appData\\PassGuardOS\\bridge_token');
-        if (!await file.exists()) return null;
-
-        final value = (await file.readAsString()).trim();
-        return value.isEmpty ? null : value;
-      }
-
-      if (Platform.isLinux) {
+        file = File('$appData\\PassGuardOS\\bridge_token');
+      } else if (Platform.isLinux) {
         final home = Platform.environment['HOME'] ?? '.';
-        final file = File('$home/.config/PassGuardOS/bridge_token');
-
-        if (!await file.exists()) return null;
-
-        final value = (await file.readAsString()).trim();
-        return value.isEmpty ? null : value;
+        file = File('$home/.config/PassGuardOS/bridge_token');
+      } else {
+        final home = Platform.environment['HOME'] ?? '.';
+        file = File('$home/.passguard_bridge_token');
       }
-
-      final home = Platform.environment['HOME'] ?? '.';
-      final file = File('$home/.passguard_bridge_token');
 
       if (!await file.exists()) return null;
-
       final value = (await file.readAsString()).trim();
       return value.isEmpty ? null : value;
     } catch (_) {
@@ -113,6 +105,7 @@ class NativeMessService {
     }
   }
 
+  /// Envía el payload al Bridge local mediante un Socket TCP
   static Future<Map<String, dynamic>> _forwardToBridge(
     Map<String, dynamic> request,
   ) async {
@@ -141,10 +134,14 @@ class NativeMessService {
       socket.writeln(jsonEncode(wrappedRequest));
       await socket.flush();
 
-      final String responseText = await utf8.decoder
-          .bind(socket.timeout(const Duration(seconds: 10)))
+      // CORRECCIÓN PARA LA NUEVA FUNCIÓN:
+      // Usamos un StreamSubscription para leer la respuesta de forma segura con el timeout de 15s.
+      // Esto evita que el bridge_timeout ocurra antes de que la App responda sobre el link_status.
+      final responseText = await utf8.decoder
+          .bind(socket)
           .transform(const LineSplitter())
-          .first;
+          .first
+          .timeout(const Duration(seconds: 15));
 
       if (responseText.trim().isEmpty) {
         return {
@@ -185,6 +182,7 @@ class NativeMessService {
     }
   }
 
+  /// Escribe la respuesta JSON en stdout siguiendo el protocolo de Chrome
   static Future<void> _writeJson(Map<String, dynamic> payload) async {
     final String jsonString = jsonEncode(payload);
     final Uint8List body = Uint8List.fromList(utf8.encode(jsonString));
@@ -202,6 +200,7 @@ class NativeMessService {
   }
 }
 
+/// Transformador para manejar el prefijo de longitud de 4 bytes del protocolo Native Messaging
 class _NativeMessageTransformer
     extends StreamTransformerBase<List<int>, Uint8List> {
   @override
