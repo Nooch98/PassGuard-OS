@@ -1,25 +1,32 @@
+function neutralizeBrowserManager() {
+  const inputs = document.querySelectorAll('input');
+  inputs.forEach(input => {
+      input.setAttribute('autocomplete', 'off-passguard-' + Math.random().toString(36).substring(7));
+      input.setAttribute('data-pg-managed', 'true');
+
+      input.style.setProperty('background-image', 'none', 'important');
+  });
+}
+
 function findVisibleInputs(doc = document) {
   let inputs = Array.from(doc.querySelectorAll("input"));
-  
   const allElements = doc.querySelectorAll('*');
   allElements.forEach(el => {
-    if (el.shadowRoot) {
-      inputs = inputs.concat(findVisibleInputs(el.shadowRoot));
-    }
+      if (el.shadowRoot) {
+          inputs = inputs.concat(findVisibleInputs(el.shadowRoot));
+      }
   });
 
   return inputs.filter((input) => {
-    const style = window.getComputedStyle(input);
-    const rect = input.getBoundingClientRect();
-
-    const isHidden = input.type === "hidden" || 
-                     style.display === "none" || 
-                     style.visibility === "hidden" || 
-                     style.opacity === "0" ||
-                     rect.width === 0 || 
-                     rect.height === 0;
-
-    return !isHidden && !input.disabled && !input.readOnly;
+      const style = window.getComputedStyle(input);
+      const rect = input.getBoundingClientRect();
+      const isHidden = input.type === "hidden" || 
+                       style.display === "none" || 
+                       style.visibility === "hidden" || 
+                       style.opacity === "0" ||
+                       rect.width === 0 || 
+                       rect.height === 0;
+      return !isHidden && !input.disabled && !input.readOnly;
   });
 }
 
@@ -27,174 +34,159 @@ function getContextText(input) {
   const parent = input.parentElement;
   const label = document.querySelector(`label[for="${input.id}"]`);
   const ariaLabel = input.getAttribute("aria-label") || input.getAttribute("aria-labelledby") || "";
-  
   return [
-    input.name,
-    input.id,
-    input.placeholder,
-    input.autocomplete,
-    ariaLabel,
-    label?.innerText || "",
-    parent?.innerText?.substring(0, 50) || ""
+      input.name, input.id, input.placeholder, input.autocomplete,
+      ariaLabel, label?.innerText || "", parent?.innerText?.substring(0, 50) || ""
   ].join(" ").toLowerCase();
 }
 
 function scoreUsernameField(input) {
   const haystack = getContextText(input);
   let score = 0;
-
   if (input.type === "email") score += 60;
   if (input.type === "text") score += 20;
-
   const highPriority = ["user", "usuari", "email", "correo", "login", "nickname"];
-  const mediumPriority = ["identif", "cuenta", "account", "alias"];
-  
   highPriority.forEach(k => { if (haystack.includes(k)) score += 50; });
-  mediumPriority.forEach(k => { if (haystack.includes(k)) score += 25; });
-
   if (input.autocomplete === "username" || input.autocomplete === "email") score += 100;
-
-  if (haystack.includes("search") || haystack.includes("buscar")) score -= 40;
   if (input.type === "password") score = 0; 
-
   return score;
 }
 
 function scorePasswordField(input) {
   const haystack = getContextText(input);
   let score = 0;
-
   if (input.type === "password") score += 150;
-  if (input.autocomplete === "current-password" || input.autocomplete === "new-password") score += 100;
-  
-  const keywords = ["pass", "contra", "clave", "pw", "mfa", "pin"];
+  const keywords = ["pass", "contra", "clave", "pw"];
   keywords.forEach(k => { if (haystack.includes(k)) score += 40; });
-
   return score;
 }
 
 function findBestFields() {
   const visibleInputs = findVisibleInputs();
-
-  const usernameCandidates = visibleInputs
-    .map((input) => ({ input, score: scoreUsernameField(input) }))
-    .filter((x) => x.score > 20)
-    .sort((a, b) => b.score - a.score);
-
-  const passwordCandidates = visibleInputs
-    .map((input) => ({ input, score: scorePasswordField(input) }))
-    .filter((x) => x.score > 20)
-    .sort((a, b) => b.score - a.score);
-
-  return {
-    username: usernameCandidates[0]?.input || null,
-    password: passwordCandidates[0]?.input || null
-  };
+  const usernameCandidates = visibleInputs.map(i => ({ input: i, score: scoreUsernameField(i) })).filter(x => x.score > 20).sort((a,b) => b.score - a.score);
+  const passwordCandidates = visibleInputs.map(i => ({ input: i, score: scorePasswordField(i) })).filter(x => x.score > 20).sort((a,b) => b.score - a.score);
+  return { username: usernameCandidates[0]?.input || null, password: passwordCandidates[0]?.input || null };
 }
 
 function setNativeValue(input, value) {
-  const descriptor = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype,
-    "value"
-  );
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
   descriptor?.set?.call(input, value);
-
   input.dispatchEvent(new Event("input", { bubbles: true }));
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+function getNormalizedPlatform() {
+  let rawTitle = document.title || "";
+  const genericTitles = ["login", "sign in", "inicio de sesión", "acceder", "auth"];
+  const firstWord = rawTitle.split(/[-|–|:| ]/)[0].trim().toLowerCase();
+  let platformName = (genericTitles.includes(firstWord) || rawTitle.length < 3) ? 
+      (window.location.hostname.split('.').reverse()[1] || window.location.hostname) : firstWord;
+  return platformName.charAt(0).toUpperCase() + platformName.slice(1);
+}
+
 function handleCapture() {
   const fields = findBestFields();
-  const passInput = fields.password || document.querySelector('input[type="password"]');
+  let currentUsername = fields.username ? fields.username.value : "";
+  let currentPassword = fields.password ? fields.password.value : "";
 
-  if (passInput && passInput.value.length > 3) {
-    const payload = {
-      origin: window.location.origin,
-      username: fields.username ? fields.username.value : "",
-      password: passInput.value,
-      platform: (document.title || window.location.hostname).split(/[-|–]/)[0].trim()
-    };
+  if (currentUsername && !currentPassword) {
+      sessionStorage.setItem('pg_pending_username', currentUsername);
+  }
 
-    chrome.runtime.sendMessage({
-      type: "PG_SAVE_SUGGESTION",
-      payload: payload
-    });
+  const savedUsername = sessionStorage.getItem('pg_pending_username');
+  const finalUsername = currentUsername || savedUsername || "";
+
+  if (currentPassword && currentPassword.length > 3) {
+      neutralizeBrowserManager();
+      
+      chrome.runtime.sendMessage({
+          type: "PG_SAVE_SUGGESTION",
+          payload: {
+              origin: window.location.origin,
+              username: finalUsername,
+              password: currentPassword,
+              platform: getNormalizedPlatform()
+          }
+      }, () => {
+          if (chrome.runtime.lastError) {
+              setTimeout(handleCapture, 300);
+          } else {
+              sessionStorage.removeItem('pg_pending_username');
+          }
+      });
   }
 }
 
+function showPassGuardBanner(data) {
+  if (document.getElementById('pg-upsert-banner')) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'pg-upsert-banner';
+
+  const styleTag = document.createElement('style');
+  styleTag.textContent = `
+      @keyframes pgSlide { from { transform: translateX(120%); } to { transform: translateX(0); } }
+      .pg-btn { transition: all 0.2s; border: 1px solid #00FBFF; cursor: pointer; padding: 10px; font-weight: bold; font-family: 'Courier New', monospace; border-radius: 4px; flex: 1; }
+      .pg-btn-primary { background: #00FBFF; color: #000; }
+      .pg-btn-primary:hover { background: #000; color: #00FBFF; box-shadow: 0 0 10px #00FBFF; }
+      .pg-btn-secondary { background: transparent; color: #fff; border-color: #555; }
+      .pg-btn-secondary:hover { border-color: #fff; }
+  `;
+  document.head.appendChild(styleTag);
+
+  banner.style.cssText = `
+      position: fixed !important; top: 20px !important; right: 20px !important;
+      z-index: 2147483647 !important; background: #0A0A0E !important;
+      border: 2px solid #00FBFF !important; color: white !important;
+      padding: 24px !important; font-family: 'Courier New', monospace !important;
+      border-radius: 12px !important; box-shadow: 0 10px 40px rgba(0,0,0,0.8), 0 0 15px rgba(0,251,255,0.4) !important;
+      width: 320px !important; animation: pgSlide 0.4s ease-out !important;
+  `;
+
+  banner.innerHTML = `
+      <div style="display: flex; align-items: center; margin-bottom: 16px;">
+          <div style="width: 10px; height: 10px; background: #00FBFF; border-radius: 50%; margin-right: 10px; box-shadow: 0 0 8px #00FBFF;"></div>
+          <span style="letter-spacing: 2px; font-size: 12px; color: #00FBFF; font-weight: bold;">PASSGUARD_OS // LINK_ACCOUNT</span>
+      </div>
+      <div style="font-size: 15px; margin-bottom: 20px; line-height: 1.5; color: #E0E0E0;">
+          Link <span style="color: #00FBFF; font-weight: bold;">${data.platform}</span> with this origin?
+          <div style="font-size: 11px; margin-top: 8px; color: #888; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase;">ORIGIN: ${data.new_origin}</div>
+      </div>
+      <div style="display: flex; gap: 12px;">
+          <button id="pg-accept" class="pg-btn pg-btn-primary">LINK ACCOUNT</button>
+          <button id="pg-deny" class="pg-btn pg-btn-secondary">IGNORE</button>
+      </div>
+  `;
+
+  (document.body || document.documentElement).appendChild(banner);
+
+  banner.querySelector('#pg-accept').onclick = () => {
+      chrome.runtime.sendMessage({ type: "PG_CONFIRM_LINK", account_id: data.account_id, origin: data.new_origin });
+      banner.remove();
+  };
+  banner.querySelector('#pg-deny').onclick = () => banner.remove();
+}
+
 document.addEventListener("mousedown", (e) => {
-  const btn = e.target.closest('button, input[type="submit"]');
-  if (btn) {
-    handleCapture(); 
-  }
+  if (e.target.closest('button, input[type="submit"], [role="button"]')) handleCapture();
 });
 
-document.addEventListener("click", (e) => {
-  const btn = e.target.closest('button, input[type="submit"], input[type="button"]');
-  if (btn) {
-    const text = (btn.innerText || btn.value || "").toLowerCase();
-    const actions = ["log", "entrar", "sign", "access", "continuar", "next", "siguiente"];
-    if (actions.some(word => text.includes(word))) {
-      setTimeout(handleCapture, 200);
-    }
-  }
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") setTimeout(handleCapture, 200);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "PG_SHOW_LINK_BANNER") {
-    const { platform, new_origin, account_id } = message.data;
-
-    if (document.getElementById('pg-upsert-banner')) return;
-
-    const banner = document.createElement('div');
-    banner.id = 'pg-upsert-banner';
-    banner.innerHTML = `
-      <div style="position: fixed; top: 10px; right: 10px; z-index: 2147483647; 
-                  background: #0A0A0E; border: 1px solid #00FBFF; color: white; 
-                  padding: 15px; font-family: monospace; border-radius: 4px;
-                  box-shadow: 0 0 15px rgba(0,251,255,0.3); min-width: 250px;">
-        <span style="color: #00FBFF">> LINK_DETECTED:</span> Link ${platform} to ${new_origin}?
-        <div style="margin-top: 10px; display: flex; gap: 10px;">
-          <button id="pg-accept" style="background: #00FBFF; border: none; cursor: pointer; padding: 5px 12px; font-weight: bold; color: black;">YES</button>
-          <button id="pg-deny" style="background: transparent; border: 1px solid white; color: white; cursor: pointer; padding: 5px 12px;">NO</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(banner);
-
-    banner.querySelector('#pg-accept').onclick = () => {
-      chrome.runtime.sendMessage({ 
-        type: "PG_CONFIRM_LINK", 
-        account_id, 
-        origin: new_origin 
-      });
-      banner.remove();
-    };
-    banner.querySelector('#pg-deny').onclick = () => banner.remove();
+      showPassGuardBanner(message.data);
   }
 
   if (message?.type === "PG_FILL_FORM") {
-    const credential = message.credential;
-    if (!credential) {
-      sendResponse?.({ ok: false, error: "MISSING_CREDENTIAL" });
-      return;
-    }
-
-    const fields = findBestFields();
-    let filled = false;
-
-    if (fields.username && credential.username) {
-      setNativeValue(fields.username, credential.username);
-      filled = true;
-    }
-
-    if (fields.password && credential.password) {
-      setNativeValue(fields.password, credential.password);
-      filled = true;
-    }
-
-    sendResponse?.({ ok: true, filled });
+      const { username, password } = message.credential || {};
+      const fields = findBestFields();
+      if (fields.username && username) setNativeValue(fields.username, username);
+      if (fields.password && password) setNativeValue(fields.password, password);
+      neutralizeBrowserManager();
+      sendResponse?.({ ok: true });
   }
-
   return true;
 });
