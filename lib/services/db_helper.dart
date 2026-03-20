@@ -1,3 +1,22 @@
+/*
+|--------------------------------------------------------------------------
+| PassGuard OS - DBHelper
+|--------------------------------------------------------------------------
+| Description:
+|   SQLite database manager for PassGuard OS.
+|
+| Responsibilities:
+|   - Initialize database
+|   - Manage schema versions
+|   - Handle migrations
+|   - Provide shared database instance
+|
+| Security Notes:
+|   - All sensitive fields are encrypted before storage
+|   - Database file contains ciphertext only
+|--------------------------------------------------------------------------
+*/
+
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -90,6 +109,9 @@ class DBHelper {
         if (oldVersion < 5) {
           await db.execute('ALTER TABLE accounts ADD COLUMN otp_meta TEXT');
         }
+        if (oldVersion < 6) {
+          await db.execute('ALTER TABLE accounts ADD COLUMN origin TEXT');
+        }
       },
     );
   }
@@ -99,6 +121,7 @@ class DBHelper {
       CREATE TABLE accounts(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         platform TEXT NOT NULL,
+        origin TEXT, -- Campo vital añadido para v6
         username TEXT,
         password TEXT NOT NULL,
         password_fp TEXT,
@@ -179,6 +202,46 @@ class DBHelper {
     ''');
   }
 
+  static Future<Map<String, dynamic>> handleSaveSuggestion(Map<String, dynamic> data) async {
+    final db = await database;
+    String origin = data['origin'] ?? "";
+    String platform = data['platform'] ?? "";
+
+    if (origin.isEmpty || platform.isEmpty) return {"status": "INVALID_DATA"};
+    List<Map<String, dynamic>> results = await db.query(
+      'accounts',
+      where: 'platform LIKE ? OR platform = ?',
+      whereArgs: ['%$platform%', platform]
+    );
+
+    if (results.isNotEmpty) {
+      var account = results.first;
+
+      if (account['origin'] == origin) {
+        return {"status": "ALREADY_LINKED"};
+      }
+
+      return {
+        "status": "NEED_CONFIRMATION",
+        "account_id": account['id'],
+        "platform": account['platform'],
+        "new_origin": origin
+      };
+    } 
+
+    return {"status": "NOT_FOUND"};
+  }
+
+  static Future<void> forceLinkOrigin(int accountId, String origin) async {
+    final db = await database;
+    await db.update(
+      'accounts',
+      {'origin': origin},
+      where: 'id = ?',
+      whereArgs: [accountId],
+    );
+  }
+
   static Future<void> updateLastUsed(int accountId) async {
     final db = await database;
     await db.update(
@@ -195,4 +258,3 @@ class DBHelper {
     _database = null;
   }
 }
-
