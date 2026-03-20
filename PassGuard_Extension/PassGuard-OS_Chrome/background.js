@@ -4,7 +4,6 @@ function sendNativeMessage(payload) {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, payload, (response) => {
       if (chrome.runtime.lastError) {
-        console.error("Native Error:", chrome.runtime.lastError.message);
         reject(new Error(chrome.runtime.lastError.message));
         return;
       }
@@ -60,39 +59,50 @@ chrome.commands.onCommand.addListener(async (command) => {
         }).catch(() => {});
       }
     } catch (err) {
-      console.error("Command Error:", err);
     }
   }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+
   if (message.type === "PG_SAVE_SUGGESTION") {
-    chrome.runtime.sendNativeMessage('com.passguard.os', {
+    const hostName = "com.passguard.os";
+
+    chrome.runtime.sendNativeMessage(hostName, {
       action: "check_link_status",
       origin: message.payload.origin,
       platform: message.payload.platform
     }, (response) => {
       if (chrome.runtime.lastError) {
+        sendResponse({ ok: false, error: chrome.runtime.lastError.message });
         return;
       }
 
       if (response && response.status === "NEED_CONFIRMATION") {
         chrome.tabs.sendMessage(sender.tab.id, {
           type: "PG_SHOW_LINK_BANNER",
-          data: response
+          data: {
+            platform: response.platform,
+            new_origin: response.new_origin || response.origin,
+            account_id: response.account_id
+          }
         });
       }
+
+      sendResponse({ ok: true, status: response ? response.status : 'no_response' });
     });
+
+    return true;
   }
 
-  if (request.type === "PG_CONFIRM_LINK") {
-    chrome.runtime.sendNativeMessage('com.passguard.os', {
+  if (message.type === "PG_CONFIRM_LINK") {
+    chrome.runtime.sendNativeMessage("com.passguard.os", {
       action: "force_link_origin",
-      account_id: request.account_id,
-      origin: request.origin
+      account_id: message.account_id,
+      origin: message.origin
+    }, (res) => {
     });
   }
-  return true;
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -169,7 +179,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: "UNKNOWN_MESSAGE_TYPE" });
       }
     } catch (err) {
-      console.error("Background Async Error:", err);
       sendResponse({
         ok: false,
         error: err?.message || "UNKNOWN_BACKGROUND_ERROR",
