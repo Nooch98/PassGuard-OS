@@ -914,6 +914,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         letterSpacing: 1.5)),
                 const SizedBox(height: 20),
 
+                // UPGRADE ALL DATA TO NEW SYSTEMS ENCRYPTION
+                ListTile(
+                  leading: const Icon(Icons.security_update_good, color: Color(0xFF00FBFF)),
+                  title: const Text("MAINTAIN_BUNKER_INTEGRITY"),
+                  subtitle: const Text("Sync all records to the latest cryptographic standard",
+                      style: TextStyle(fontSize: 10, color: Colors.grey)),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    _showUniversalUpgradeConfirmation();
+                  },
+                ),
+                const SizedBox(height: 20),
+
                 // BIOMETRIC
                 ListTile(
                   leading: const Icon(Icons.fingerprint, color: Color(0xFF00FBFF)),
@@ -1042,6 +1055,139 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  void _showUniversalUpgradeConfirmation() {
+    final String latestPrefix = EncryptionService.currentVersionPrefix;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF0A0A0E),
+        title: Text("> CRYPTO_SYNC: $latestPrefix", 
+          style: const TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace')),
+        content: Text(
+          "All vault records (Passwords, OTP, History, Identities, and Notes) will be migrated to the $latestPrefix standard.",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00FBFF)),
+            onPressed: () async {
+              Navigator.pop(context);
+
+              try {
+                final db = await DBHelper.database;
+                final batch = db.batch();
+                int totalMigrated = 0;
+
+                final List<Map<String, dynamic>> accounts = await db.query('accounts');
+                for (var row in accounts) {
+                  Map<String, dynamic> updates = {};
+                  bool needsUpdate = false;
+
+                  String currentPass = row['password'] ?? "";
+                  if (currentPass.isNotEmpty && !currentPass.startsWith(latestPrefix)) {
+                    String decrypted = EncryptionService.decrypt(combinedText: currentPass, masterKeyBytes: widget.masterKey);
+                    updates['password'] = EncryptionService.encrypt(decrypted, widget.masterKey);
+                    needsUpdate = true;
+                  }
+
+                  String? currentOtp = row['otp_seed'];
+                  if (currentOtp != null && currentOtp.isNotEmpty && !currentOtp.startsWith(latestPrefix)) {
+                    String decrypted = EncryptionService.decrypt(combinedText: currentOtp, masterKeyBytes: widget.masterKey);
+                    updates['otp_seed'] = EncryptionService.encrypt(decrypted, widget.masterKey);
+                    needsUpdate = true;
+                  }
+
+                  String? historyStr = row['password_history'];
+                  if (historyStr != null && historyStr.isNotEmpty) {
+                    List<String> historyList = historyStr.split(',');
+                    List<String> upgradedHistory = [];
+                    bool historyChanged = false;
+                    for (var oldEntry in historyList) {
+                      if (oldEntry.isNotEmpty && !oldEntry.startsWith(latestPrefix)) {
+                        try {
+                          String decrypted = EncryptionService.decrypt(combinedText: oldEntry, masterKeyBytes: widget.masterKey);
+                          upgradedHistory.add(EncryptionService.encrypt(decrypted, widget.masterKey));
+                          historyChanged = true;
+                        } catch (e) { upgradedHistory.add(oldEntry); }
+                      } else { upgradedHistory.add(oldEntry); }
+                    }
+                    if (historyChanged) {
+                      updates['password_history'] = upgradedHistory.join(',');
+                      needsUpdate = true;
+                    }
+                  }
+
+                  if (needsUpdate) {
+                    updates['updated_at'] = DateTime.now().toIso8601String();
+                    batch.update('accounts', updates, where: 'id = ?', whereArgs: [row['id']]);
+                    totalMigrated++;
+                  }
+                }
+
+                final List<Map<String, dynamic>> identities = await db.query('identities');
+                for (var row in identities) {
+                  Map<String, dynamic> updates = {};
+                  bool needsUpdate = false;
+                  final sensitiveFields = ['full_name', 'email', 'phone', 'address1', 'city', 'state', 'zip_code', 'country', 'card_number', 'cvv', 'document_number', 'notes'];
+                  for (var field in sensitiveFields) {
+                    String? val = row[field];
+                    if (val != null && val.isNotEmpty && val.contains('.') && !val.startsWith(latestPrefix)) {
+                      try {
+                        String decrypted = EncryptionService.decrypt(combinedText: val, masterKeyBytes: widget.masterKey);
+                        updates[field] = EncryptionService.encrypt(decrypted, widget.masterKey);
+                        needsUpdate = true;
+                      } catch (e) { debugPrint("Error en campo $field ID ${row['id']}: $e"); }
+                    }
+                  }
+                  if (needsUpdate) {
+                    updates['updated_at'] = DateTime.now().toIso8601String();
+                    batch.update('identities', updates, where: 'id = ?', whereArgs: [row['id']]);
+                    totalMigrated++;
+                  }
+                }
+
+                final List<Map<String, dynamic>> notes = await db.query('notes');
+                for (var row in notes) {
+                  String content = row['content'] ?? "";
+                  if (content.isNotEmpty && !content.startsWith(latestPrefix)) {
+                    try {
+                      String decrypted = EncryptionService.decrypt(
+                        combinedText: content, 
+                        masterKeyBytes: widget.masterKey
+                      );
+                      batch.update('notes', {
+                        'content': EncryptionService.encrypt(decrypted, widget.masterKey),
+                        'updated_at': DateTime.now().toIso8601String(),
+                      }, where: 'id = ?', whereArgs: [row['id']]);
+                      totalMigrated++;
+                    } catch (e) {
+                      debugPrint("Error migrating note ID ${row['id']}: $e");
+                    }
+                  }
+                }
+
+                await batch.commit(noResult: true);
+                if (!mounted) return;
+                Navigator.pop(context);
+                _showSuccessSnackBar("SYNC_COMPLETE: $totalMigrated ENTRIES_UPGRADED");
+                setState(() {});
+
+              } catch (e) {
+                if (mounted) {
+                  Navigator.pop(context);
+                  _showErrorSnackBar("SYNC_FAILED: CORE_ENGINE_ERROR");
+                }
+              }
+            },
+            child: const Text("START_SYNC", style: TextStyle(color: Colors.black)),
+          ),
+        ],
       ),
     );
   }
@@ -1709,7 +1855,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       );
 
                       if (existingPassword == null) {
-                        // Create new
                         await db.insert(
                           'accounts',
                           PasswordModel(
