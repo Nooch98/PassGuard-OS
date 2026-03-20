@@ -1064,20 +1064,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: const Color(0xFF0A0A0E),
-        title: Text("> CRYPTO_SYNC: $latestPrefix", 
-          style: const TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace')),
+        title: Text("> CRYPTO_SYNC: $latestPrefix",
+            style: const TextStyle(
+                color: Color(0xFF00FBFF), fontFamily: 'monospace')),
         content: Text(
           "All vault records (Passwords, OTP, History, Identities, and Notes) will be migrated to the $latestPrefix standard.",
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text("CANCEL")),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00FBFF)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00FBFF)),
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
+
+              _showProcessingOverlay();
 
               try {
                 final db = await DBHelper.database;
@@ -1091,14 +1097,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
                   String currentPass = row['password'] ?? "";
                   if (currentPass.isNotEmpty && !currentPass.startsWith(latestPrefix)) {
-                    String decrypted = EncryptionService.decrypt(combinedText: currentPass, masterKeyBytes: widget.masterKey);
+                    String decrypted = EncryptionService.decrypt(
+                        combinedText: currentPass, masterKeyBytes: widget.masterKey);
                     updates['password'] = EncryptionService.encrypt(decrypted, widget.masterKey);
                     needsUpdate = true;
                   }
 
                   String? currentOtp = row['otp_seed'];
                   if (currentOtp != null && currentOtp.isNotEmpty && !currentOtp.startsWith(latestPrefix)) {
-                    String decrypted = EncryptionService.decrypt(combinedText: currentOtp, masterKeyBytes: widget.masterKey);
+                    String decrypted = EncryptionService.decrypt(
+                        combinedText: currentOtp, masterKeyBytes: widget.masterKey);
                     updates['otp_seed'] = EncryptionService.encrypt(decrypted, widget.masterKey);
                     needsUpdate = true;
                   }
@@ -1111,17 +1119,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     for (var oldEntry in historyList) {
                       if (oldEntry.isNotEmpty && !oldEntry.startsWith(latestPrefix)) {
                         try {
-                          String decrypted = EncryptionService.decrypt(combinedText: oldEntry, masterKeyBytes: widget.masterKey);
+                          String decrypted = EncryptionService.decrypt(
+                              combinedText: oldEntry, masterKeyBytes: widget.masterKey);
                           upgradedHistory.add(EncryptionService.encrypt(decrypted, widget.masterKey));
                           historyChanged = true;
-                        } catch (e) { upgradedHistory.add(oldEntry); }
-                      } else { upgradedHistory.add(oldEntry); }
+                        } catch (e) {
+                          upgradedHistory.add(oldEntry);
+                        }
+                      } else {
+                        upgradedHistory.add(oldEntry);
+                      }
                     }
                     if (historyChanged) {
                       updates['password_history'] = upgradedHistory.join(',');
                       needsUpdate = true;
                     }
                   }
+
+                  String? notesContent = row['notes']; 
+                    if (notesContent != null && notesContent.isNotEmpty && !notesContent.startsWith(latestPrefix)) {
+                      try {
+                        String decrypted = EncryptionService.decrypt(combinedText: notesContent, masterKeyBytes: widget.masterKey);
+                        updates['notes'] = EncryptionService.encrypt(decrypted, widget.masterKey);
+                        needsUpdate = true;
+                      } catch (e) {
+                        debugPrint("Error migrating notes column in account ID ${row['id']}: $e");
+                      }
+                    }
 
                   if (needsUpdate) {
                     updates['updated_at'] = DateTime.now().toIso8601String();
@@ -1134,15 +1158,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 for (var row in identities) {
                   Map<String, dynamic> updates = {};
                   bool needsUpdate = false;
-                  final sensitiveFields = ['full_name', 'email', 'phone', 'address1', 'city', 'state', 'zip_code', 'country', 'card_number', 'cvv', 'document_number', 'notes'];
+                  final sensitiveFields = [
+                    'full_name', 'email', 'phone', 'address1', 'city', 'state', 
+                    'zip_code', 'country', 'card_number', 'cvv', 'document_number', 'notes'
+                  ];
                   for (var field in sensitiveFields) {
                     String? val = row[field];
                     if (val != null && val.isNotEmpty && val.contains('.') && !val.startsWith(latestPrefix)) {
                       try {
-                        String decrypted = EncryptionService.decrypt(combinedText: val, masterKeyBytes: widget.masterKey);
+                        String decrypted = EncryptionService.decrypt(
+                            combinedText: val, masterKeyBytes: widget.masterKey);
                         updates[field] = EncryptionService.encrypt(decrypted, widget.masterKey);
                         needsUpdate = true;
-                      } catch (e) { debugPrint("Error en campo $field ID ${row['id']}: $e"); }
+                      } catch (e) {
+                        debugPrint("Error en campo $field ID ${row['id']}: $e");
+                      }
                     }
                   }
                   if (needsUpdate) {
@@ -1152,42 +1182,53 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   }
                 }
 
-                final List<Map<String, dynamic>> notes = await db.query('notes');
-                for (var row in notes) {
-                  String content = row['content'] ?? "";
-                  if (content.isNotEmpty && !content.startsWith(latestPrefix)) {
-                    try {
-                      String decrypted = EncryptionService.decrypt(
-                        combinedText: content, 
-                        masterKeyBytes: widget.masterKey
-                      );
-                      batch.update('notes', {
-                        'content': EncryptionService.encrypt(decrypted, widget.masterKey),
-                        'updated_at': DateTime.now().toIso8601String(),
-                      }, where: 'id = ?', whereArgs: [row['id']]);
-                      totalMigrated++;
-                    } catch (e) {
-                      debugPrint("Error migrating note ID ${row['id']}: $e");
-                    }
-                  }
-                }
-
                 await batch.commit(noResult: true);
+
                 if (!mounted) return;
-                Navigator.pop(context);
+
+                Navigator.of(context).pop();
+
                 _showSuccessSnackBar("SYNC_COMPLETE: $totalMigrated ENTRIES_UPGRADED");
+                
                 setState(() {});
 
               } catch (e) {
+                debugPrint("MIGRATION_ERROR: $e");
                 if (mounted) {
-                  Navigator.pop(context);
+                  Navigator.of(context).pop();
                   _showErrorSnackBar("SYNC_FAILED: CORE_ENGINE_ERROR");
                 }
               }
             },
-            child: const Text("START_SYNC", style: TextStyle(color: Colors.black)),
+            child:
+                const Text("START_SYNC", style: TextStyle(color: Colors.black)),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showProcessingOverlay() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(color: Color(0xFF00FBFF)),
+              const SizedBox(height: 20),
+              const Text("RE-ENCRYPTING_DATABASE...",
+                  style: TextStyle(
+                      color: Color(0xFF00FBFF),
+                      fontFamily: 'monospace',
+                      decoration: TextDecoration.none,
+                      fontSize: 12)),
+            ],
+          ),
+        ),
       ),
     );
   }
