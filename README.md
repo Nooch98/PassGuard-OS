@@ -97,6 +97,20 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 ### Chrome/Firefox Extension (OPTIONAL)
 Optional browser extension via secure local bridge. The extension for **Firefox is officially signed by Mozilla**, ensuring security and seamless installation.
 
+### Smart Auth Engine (v1.2.0)
+
+The extension now features an advanced interception engine designed to handle modern web flows:
+* Step-by-Step Support: Uses sessionStorage to persist usernames across multiple pages (e.g., Google login flow).
+* Dynamic Linking: Detects if a known account is being used on a new sub-domain/origin and offers instant linking.
+* Shadow DOM Discovery: Deep scanning of web elements to find hidden or complex login fields.
+
+>[!CAUTION]
+>NATIVE POPUP CONFLICT: Browsers (Chrome, Firefox, Edge) will often trigger their own "Save Password" popup simultaneously.
+
+You must interact with the PassGuard "LINK ACCOUNT" banner quickly. If the browser's native popup is accepted or the page redirects too fast, the extension port may close due to browser bfcache policies.
+>[!IMPORTANT]
+>Work in progress: fixing interference with native browser popups.
+
 The browser extension allows:
 * Autofill login credentials
 * Manual password copy
@@ -378,6 +392,7 @@ PassGuard OS is a personal project following a Zero-Knowledge and Offline-First 
 * **Cloud/Network Breaches**: Completely mitigated (No network egress points).
 * **Local IPC/Extension Attacks**: Mitigated via per-session authentication tokens and origin validation.
 * **Duress/Coercion**: Mitigated via Panic Protocol (immediate destruction of the local vault).
+* **Step-by-Step Data Leakage**: Mitigated via **Volatile Session Storage**. When handling multi-page logins (e.g., Google), the username is temporarily stored in the tab's `sessionStorage`. This data is never written to disk, is isolated per tab, and is wiped immediately after the credential set is completed or the tab is closed.
 
 **Known Limitations**
 
@@ -385,18 +400,21 @@ PassGuard OS is a personal project following a Zero-Knowledge and Offline-First 
 * **Memory Forensic Attacks**: While I implement buffer clearing, hardware-level memory forensics while the vault is unlocked remain a risk.
 * **Input Interception (Keyloggers)**: Software-based keyloggers on the host OS can capture the Master Password during entry.
 * **Advanced Persistent Threats (APTs)**: Designed for personal use, not targeted state-level surveillance.
+* **Browser-Level Memory**: While `sessionStorage` is isolated, an attacker with full control over the browser process or a malicious extension with broad permissions could theoretically access the temporary username stored during a multi-step login.
 
 ```mermaid
 graph LR
     User((User Input)) --> App[PassGuard OS Core]
-    App -->|Encrypted Memory| DB[(Encrypted SQLite)]
-    App <-->|Localhost / Auth Token| Bridge[Native Host]
-    Bridge <-->|Secure IPC| Ext[Browser Extension]
+    App -->|Encrypted_Memory| DB[(Encrypted SQLite)]
+    App <-->|Localhost_Auth| Bridge[Native Host]
+    Bridge <-->|Secure_IPC| Ext[Browser Extension]
+    Ext <-->|Volatile_Persistence| SS[(Tab SessionStorage)]
     
     style App fill:#3498db,stroke:#2980b9,color:#fff
     style DB fill:#27ae60,stroke:#1e8449,color:#fff
     style Bridge fill:#f39c12,stroke:#d35400,color:#fff
     style Ext fill:#9b59b6,stroke:#8e44ad,color:#fff
+    style SS fill:#666,stroke:#444,color:#fff,stroke-dasharray: 5 5
 ```
 
 ### Best Practices
