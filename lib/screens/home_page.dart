@@ -19,6 +19,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:passguard/screens/dashboard.dart';
 import 'package:passguard/screens/identities_vault_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
@@ -77,6 +78,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Map<int, String?> _totpSecretCache = {};
 
   final GlobalKey<IdentitiesVaultScreenState> _identitiesKey = GlobalKey<IdentitiesVaultScreenState>();
+  final GlobalKey<DashboardScreenState> _dashboardKey = GlobalKey<DashboardScreenState>();
 
   @override
   void initState() {
@@ -400,203 +402,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     HapticFeedback.lightImpact();
   }
 
-  void _showSecurityAuditDetailed() {
-    final result = SecurityAnalyzer.analyze(_passwords);
-    final total = result.totalPasswords == 0 ? 1 : result.totalPasswords;
-    final twoFaPct = (result.twoFactorEnabled / total) * 100;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF0A0A0E),
-        shape: RoundedRectangleBorder(
-          side: BorderSide(color: _getHealthColor(result.overallScore), width: 2),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        title: Text(
-          '> SECURITY_DASHBOARD',
-          style: TextStyle(
-            color: _getHealthColor(result.overallScore),
-            fontFamily: 'monospace',
-            fontSize: 16,
-          ),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: _metricChip(
-                      label: 'ACCOUNTS',
-                      value: '${result.totalPasswords}',
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _metricChip(
-                      label: '2FA',
-                      value: '${twoFaPct.toStringAsFixed(0)}%',
-                      color: const Color(0xFF00FBFF),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-
-              const Text('OVERALL_SECURITY:', style: TextStyle(color: Colors.white54, fontSize: 11)),
-              const SizedBox(height: 10),
-              LinearProgressIndicator(
-                value: (result.overallScore / 100).clamp(0, 1),
-                backgroundColor: Colors.white10,
-                color: _getHealthColor(result.overallScore),
-                minHeight: 12,
-              ),
-              const SizedBox(height: 10),
-              Center(
-                child: Text(
-                  '${result.overallScore.toInt()}%',
-                  style: TextStyle(
-                    color: _getHealthColor(result.overallScore),
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              _riskCard(
-                title: 'WEAK_PASSWORDS',
-                value: result.weakPasswords,
-                color: result.weakPasswords > 0 ? Colors.red : Colors.green,
-                hint: 'Change these first.',
-                actionLabel: 'FIX',
-                onAction: result.weakPasswords > 0
-                    ? () {
-                        Navigator.pop(context);
-                        _showAuditListDialog(
-                          title: 'WEAK_ACCOUNTS',
-                          color: Colors.red,
-                          items: result.weakPasswordsList.map((e) => e.platform).toList(),
-                        );
-                      }
-                    : null,
-              ),
-
-              const SizedBox(height: 10),
-
-              _riskCard(
-                title: 'REUSED_PASSWORDS',
-                value: result.reusedPasswords,
-                color: result.reusedPasswords > 0 ? Colors.red : Colors.green,
-                hint: 'One leak can break multiple accounts.',
-                actionLabel: 'FIX',
-                onAction: result.reusedPasswords > 0
-                    ? () {
-                        Navigator.pop(context);
-                        _showAuditListDialog(
-                          title: 'REUSED_ACCOUNTS',
-                          color: Colors.red,
-                          items: result.reusedPasswordsList.map((e) => e.platform).toList(),
-                        );
-                      }
-                    : null,
-              ),
-
-              const SizedBox(height: 10),
-
-              _riskCard(
-                title: 'OLD_PASSWORDS_90D+',
-                value: result.oldPasswords,
-                color: result.oldPasswords > 0 ? Colors.orange : Colors.green,
-                hint: 'Review sensitive accounts regularly.',
-                actionLabel: 'VIEW',
-                onAction: result.oldPasswords > 0
-                    ? () {
-                        Navigator.pop(context);
-                        _showAuditListDialog(
-                          title: 'OLD_ACCOUNTS',
-                          color: Colors.orange,
-                          items: result.oldPasswordsList.map((e) => e.platform).toList(),
-                        );
-                      }
-                    : null,
-              ),
-
-              const SizedBox(height: 18),
-
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.white10),
-                ),
-                child: Text(
-                  SecurityAnalyzer.getRecommendation(result),
-                  style: const TextStyle(
-                    color: Color(0xFF00FBFF),
-                    fontSize: 11,
-                    fontStyle: FontStyle.italic,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-
-              const SizedBox(height: 14),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF00FBFF),
-                        side: const BorderSide(color: Color(0xFF00FBFF)),
-                      ),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _openPasswordGenerator();
-                      },
-                      child: const Text('GENERATE', style: TextStyle(fontSize: 11)),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white24),
-                      ),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _showSecurityAuditDetailed();
-                      },
-                      child: const Text('REFRESH', style: TextStyle(fontSize: 11)),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'CLOSE',
-              style: TextStyle(color: _getHealthColor(result.overallScore)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _metricChip({
     required String label,
     required String value,
@@ -721,14 +526,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (score >= 60) return const Color(0xFF00FBFF);
     if (score >= 40) return const Color(0xFFFFFF00);
     return Colors.red;
-  }
-
-  String _getHealthStatusText(double score) {
-    if (score >= 90) return "CORE_STABLE";
-    if (score >= 70) return "SECURE_MARGIN";
-    if (score >= 50) return "WEAK_POINTS";
-    if (score > 0) return "THREAT_DETECTED";
-    return "BUNKER_EMPTY";
   }
 
   Future<void> _handleImageInjection() async {
@@ -1027,18 +824,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   subtitle: const Text("Steganographic image injection",
                       style: TextStyle(fontSize: 10, color: Colors.grey)),
                   onTap: () { Navigator.pop(context); _showColdStorageDialog(); },
-                ),
-
-                // SECURITY AUDIT
-                ListTile(
-                  leading: const Icon(Icons.analytics_outlined, color: Color(0xFF00FBFF)),
-                  title: const Text("CORE_SECURITY_AUDIT"),
-                  subtitle: const Text("Analyze bunker integrity and password health",
-                      style: TextStyle(fontSize: 10, color: Colors.grey)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showSecurityAuditDetailed();
-                  },
                 ),
 
                 // EXPORT DATA
@@ -2705,37 +2490,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               const Text("VAULT_INTERFACE",
                   style: TextStyle(color: Color(0xFF00FBFF), fontSize: 13, letterSpacing: 1, fontFamily: 'monospace')),
               const SizedBox(height: 6),
-              Row(
-                children: [
-                  SizedBox(
-                    width: 80,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(1),
-                      child: LinearProgressIndicator(
-                        value: _currentHealthScore / 100,
-                        backgroundColor: Colors.white10,
-                        color: _getHealthColor(_currentHealthScore),
-                        minHeight: 3,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _getHealthStatusText(_currentHealthScore),
-                    style: TextStyle(
-                        color: _getHealthColor(_currentHealthScore),
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'monospace',
-                        letterSpacing: 0.5),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    "${_currentHealthScore.toInt()}%",
-                    style: const TextStyle(color: Colors.white38, fontSize: 9, fontFamily: 'monospace'),
-                  ),
-                ],
-              ),
             ],
           ),
           actions: [
@@ -2769,7 +2523,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           children: [
             _buildPasswordList(),
             IdentitiesVaultScreen(key: _identitiesKey, masterKey: widget.masterKey),
-            FileVaultScreen(masterKey: widget.masterKey),
+            DashboardScreen(key: _dashboardKey, masterKey: widget.masterKey),
+            //FileVaultScreen(masterKey: widget.masterKey),
           ],
         ),
 
@@ -2790,7 +2545,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             items: const [
               BottomNavigationBarItem(icon: Icon(Icons.key), label: "KEYS"),
               BottomNavigationBarItem(icon: Icon(Icons.badge), label: "IDENTITYS"),
-              BottomNavigationBarItem(icon: Icon(Icons.folder_special), label: "FILES"),
+              BottomNavigationBarItem(icon: Icon(Icons.analytics_outlined), label: "DASHBOARD"),
+              // BottomNavigationBarItem(icon: Icon(Icons.folder_special), label: "FILES"),
             ],
           ),
         ),
@@ -2804,9 +2560,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     switch (_selectedIndex) {
       case 0:
         return _buildFabPasswords();
-        
+          
       case 1:
         return FloatingActionButton(
+          heroTag: "fab_id",
           backgroundColor: const Color(0xFF00FBFF),
           child: const Icon(Icons.add_moderator, color: Colors.black),
           onPressed: () {
@@ -2814,17 +2571,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _identitiesKey.currentState?.showIdentityFormExternal();
           },
         );
-        
-      case 2:
+          
+      case 2: // DASHBOARD
         return FloatingActionButton(
-          backgroundColor: const Color(0xFFFF00FF),
-          child: const Icon(Icons.upload_file, color: Colors.white),
+          heroTag: "fab_dash",
+          backgroundColor: const Color(0xFF00FBFF),
+          child: const Icon(Icons.refresh_sharp, color: Colors.black),
           onPressed: () {
             _onUserInteraction();
-            _pickFileForVault();
+            // Llamamos directamente a la función de auditoría del Dashboard
+            _dashboardKey.currentState?.performSecurityAudit(); 
           },
         );
-        
+          
       default:
         return null;
     }
