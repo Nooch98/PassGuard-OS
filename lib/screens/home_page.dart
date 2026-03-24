@@ -2523,7 +2523,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           children: [
             _buildPasswordList(),
             IdentitiesVaultScreen(key: _identitiesKey, masterKey: widget.masterKey),
-            DashboardScreen(key: _dashboardKey, masterKey: widget.masterKey),
+            DashboardScreen(key: _dashboardKey, masterKey: widget.masterKey, onRepairRequested: (model) => _showForm(existingPassword: model)),
             //FileVaultScreen(masterKey: widget.masterKey),
           ],
         ),
