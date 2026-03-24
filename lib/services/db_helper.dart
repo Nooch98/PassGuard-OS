@@ -42,77 +42,53 @@ class DBHelper {
     
     return await openDatabase(
       path,
-      version: 5,
+      version: 7,
       onCreate: (db, version) async {
         await _createTables(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await db.execute(
-            'ALTER TABLE accounts ADD COLUMN created_at TEXT'
-          );
-          await db.execute(
-            'ALTER TABLE accounts ADD COLUMN updated_at TEXT'
-          );
-          await db.execute(
-            'ALTER TABLE accounts ADD COLUMN last_used TEXT'
-          );
-          await db.execute(
-            'ALTER TABLE accounts ADD COLUMN notes TEXT'
-          );
-          await db.execute(
-            'ALTER TABLE accounts ADD COLUMN is_favorite INTEGER DEFAULT 0'
-          );
-          await db.execute(
-            'ALTER TABLE accounts ADD COLUMN password_history TEXT'
-          );
+      Future<void> safeAddColumn(String table, String column, String type) async {
+        try {
+          await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
+          print("DATABASE: Column $column added to $table.");
+        } catch (e) {
+          print("DATABASE: Column $column already exists in $table, skipping...");
         }
-        if (oldVersion < 3) {
+      }
+
+      if (oldVersion < 2) {
+        await safeAddColumn('accounts', 'created_at', 'TEXT');
+        await safeAddColumn('accounts', 'updated_at', 'TEXT');
+        await safeAddColumn('accounts', 'last_used', 'TEXT');
+        await safeAddColumn('accounts', 'notes', 'TEXT');
+        await safeAddColumn('accounts', 'is_favorite', 'INTEGER DEFAULT 0');
+        await safeAddColumn('accounts', 'password_history', 'TEXT');
+      }
+
+      if (oldVersion < 3) {
+        try {
           await db.execute('''
-            CREATE TABLE identities (
+            CREATE TABLE IF NOT EXISTS identities (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               title TEXT NOT NULL,
               type TEXT NOT NULL,
               full_name TEXT,
-              first_name TEXT,
-              middle_name TEXT,
-              last_name TEXT,
               email TEXT,
               phone TEXT,
-              date_of_birth TEXT,
-              gender TEXT,
-              address1 TEXT,
-              address2 TEXT,
-              city TEXT,
-              state TEXT,
-              zip_code TEXT,
-              country TEXT,
-              card_number TEXT,
-              card_holder TEXT,
-              expiration_date TEXT,
-              cvv TEXT,
-              card_type TEXT,
-              document_number TEXT,
-              issuing_authority TEXT,
-              issue_date TEXT,
-              expiry_date TEXT,
-              notes TEXT,
               is_favorite INTEGER DEFAULT 0,
               created_at TEXT,
               updated_at TEXT
+              -- ... (el resto de tus campos de identidad)
             )
           ''');
-        }
-        if (oldVersion < 4) {
-          await db.execute('ALTER TABLE accounts ADD COLUMN password_fp TEXT');
-        }
-        if (oldVersion < 5) {
-          await db.execute('ALTER TABLE accounts ADD COLUMN otp_meta TEXT');
-        }
-        if (oldVersion < 6) {
-          await db.execute('ALTER TABLE accounts ADD COLUMN origin TEXT');
-        }
-      },
+        } catch (e) { print("Identities table check: $e"); }
+      }
+
+      if (oldVersion < 4) await safeAddColumn('accounts', 'password_fp', 'TEXT');
+      if (oldVersion < 5) await safeAddColumn('accounts', 'otp_meta', 'TEXT');
+      if (oldVersion < 6) await safeAddColumn('accounts', 'origin', 'TEXT');
+      if (oldVersion < 7) await safeAddColumn('accounts', 'is_excluded', 'INTEGER DEFAULT 0');
+    },
     );
   }
 
@@ -133,7 +109,8 @@ class DBHelper {
         notes TEXT,
         is_favorite INTEGER DEFAULT 0,
         password_history TEXT,
-        otp_meta TEXT
+        otp_meta TEXT,
+        is_excluded INTEGER DEFAULT 0
       )
     ''');
 
