@@ -70,6 +70,15 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 | Screenshot Protection | Prevents screenshots on Android |
 | Failed Login Lockout | 5 Attempts = 30-second lockout |
 
+### Password Health Dashboard
+Keep your security under control with a real-time analysis of your vault:
+* **Weak Password Detection:** Identifies credentials vulnerable to brute-force attacks.
+* **Reuse Detection:** Locates duplicate passwords across different services.
+* **Old Password Alerts:** Automatic notifications for credentials older than 90 days.
+* **Security Score:** A global rating (0-100) based on the overall robustness of your database.
+
+<img width="1919" height="1079" alt="Captura de pantalla 2026-03-24 013720" src="https://github.com/user-attachments/assets/37d3685d-eca4-43bb-a881-c27c831723fa" />
+
 ### Password Management
 * **Advanced Password Generator**
     * Random Passwords (8-64 characters)
