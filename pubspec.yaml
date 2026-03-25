@@ -54,6 +54,7 @@ flutter:
 
   assets:
     - assets/wordlists/multi_2000.txt
+    - assets/breach_db.txt
 
 flutter_launcher_icons:
   android: true
