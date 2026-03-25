@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'dart:typed_data';
+import 'dart:async';
+import 'dart:convert';
+import 'package:crypto/crypto.dart'; 
 import '../services/db_helper.dart';
 import '../services/encryption_service.dart';
 import '../models/password_model.dart';
@@ -24,12 +28,12 @@ class AuditResult {
 
 class DashboardScreen extends StatefulWidget {
   final Uint8List masterKey;
-  final Function(PasswordModel) onRepairRequested; 
+  final Function(PasswordModel) onRepairRequested;
 
   const DashboardScreen({
-    super.key, 
-    required this.masterKey, 
-    required this.onRepairRequested
+    super.key,
+    required this.masterKey,
+    required this.onRepairRequested,
   });
 
   @override
@@ -38,34 +42,61 @@ class DashboardScreen extends StatefulWidget {
 
 class DashboardScreenState extends State<DashboardScreen> {
   bool _isLoading = true;
+  String _loadingStatus = "INITIALIZING_SYSTEM...";
   int _totalAccounts = 0;
   int _excludedCount = 0;
   double _healthScore = 100.0;
   List<AuditResult> _auditReports = [];
+  Map<String, int> _categoryRisks = {};
+
+  Set<String> _breachHashSet = {};
+  RiskLevel? _selectedFilter;
 
   @override
   void initState() {
     super.initState();
-    performSecurityAudit();
+    _initDashboard();
+  }
+
+  Future<void> _initDashboard() async {
+    await _loadBreachDictionary();
+    await performSecurityAudit();
+  }
+
+  Future<void> _loadBreachDictionary() async {
+    try {
+      setState(() => _loadingStatus = "LOADING_THREAT_DATABASE...");
+      final data = await rootBundle.loadString('assets/breach_db.txt');
+      _breachHashSet = Set.from(data.split('\n').where((s) => s.isNotEmpty));
+    } catch (e) {
+      debugPrint("Breach DB not found, skipping local check: $e");
+    }
   }
 
   Future<void> performSecurityAudit() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _loadingStatus = "ACCESSING_ENCRYPTED_VAULT...";
+    });
 
     try {
       final db = await DBHelper.database;
+      await Future.delayed(const Duration(milliseconds: 400));
+      
       final List<Map<String, dynamic>> rows = await db.query('accounts');
       
-      Map<String, List<Map<String, dynamic>>> passwordGroups = {}; 
+      Map<String, List<Map<String, dynamic>>> passwordGroups = {};
       List<AuditResult> tempReports = [];
+      Map<String, int> tempCategoryRisks = {};
+      
       _totalAccounts = rows.length;
       _excludedCount = 0;
 
       for (var row in rows) {
         if ((row['is_excluded'] as int? ?? 0) == 1) {
           _excludedCount++;
-          continue; 
+          continue;
         }
 
         final decrypted = EncryptionService.decrypt(
@@ -74,6 +105,21 @@ class DashboardScreenState extends State<DashboardScreen> {
         );
 
         if (decrypted.isEmpty || decrypted.startsWith("ERROR:")) continue;
+
+        var bytes = utf8.encode(decrypted);
+        var digest = sha1.convert(bytes).toString();
+        var truncatedHash = digest.substring(0, 10);
+
+        if (_breachHashSet.contains(truncatedHash)) {
+          tempReports.add(AuditResult(
+            id: row['id'] as int,
+            platform: row['platform']?.toString() ?? "UNKNOWN",
+            username: row['username']?.toString() ?? "---",
+            risk: RiskLevel.critical,
+            reason: "ROCKYOU_BREACH_MATCH",
+          ));
+          _incrementCategoryRisk(tempCategoryRisks, row['category']);
+        }
 
         bool hasUpper = decrypted.contains(RegExp(r'[A-Z]'));
         bool hasDigits = decrypted.contains(RegExp(r'[0-9]'));
@@ -85,9 +131,26 @@ class DashboardScreenState extends State<DashboardScreen> {
             platform: row['platform']?.toString() ?? "UNKNOWN",
             username: row['username']?.toString() ?? "---",
             risk: decrypted.length < 8 ? RiskLevel.critical : RiskLevel.warning,
-            reason: decrypted.length < 8 ? "CRITICAL_LENGTH" : (decrypted.length < 12 ? "WEAK_STRUCTURE" : "LOW_ENTROPY"),
+            reason: decrypted.length < 8 ? "CRITICAL_LENGTH" : "WEAK_STRUCTURE",
           ));
+          _incrementCategoryRisk(tempCategoryRisks, row['category']);
         }
+
+        final String? dateStr = row['updated_at'] ?? row['created_at'];
+        if (dateStr != null) {
+          final lastUpdate = DateTime.parse(dateStr);
+          final daysOld = DateTime.now().difference(lastUpdate).inDays;
+          if (daysOld > 180) {
+            tempReports.add(AuditResult(
+              id: row['id'] as int,
+              platform: row['platform']?.toString() ?? "UNKNOWN",
+              username: row['username']?.toString() ?? "---",
+              risk: RiskLevel.info,
+              reason: "STALE_KEY ($daysOld DAYS)",
+            ));
+          }
+        }
+
         passwordGroups.putIfAbsent(decrypted, () => []).add(row);
       }
 
@@ -100,17 +163,20 @@ class DashboardScreenState extends State<DashboardScreen> {
               platform: inst['platform'],
               username: inst['username'] ?? "---",
               risk: RiskLevel.critical,
-              reason: "KEY_REUSE",
+              reason: "KEY_REUSE_DETECTED",
             ));
           }
         }
       });
 
-      setState(() {
-        _auditReports = tempReports;
-        _healthScore = _calculateHealth();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _auditReports = tempReports;
+          _categoryRisks = tempCategoryRisks;
+          _healthScore = _calculateHealth();
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -121,62 +187,32 @@ class DashboardScreenState extends State<DashboardScreen> {
     if (activeNodes <= 0) return 100.0;
     double penalty = 0;
     for (var report in _auditReports) {
-      penalty += (report.risk == RiskLevel.critical) ? 12.0 : 5.0;
+      if (report.risk == RiskLevel.critical) penalty += 20.0;
+      else if (report.risk == RiskLevel.warning) penalty += 8.0;
+      else penalty += 2.0;
     }
-    double score = 100.0 - (penalty / activeNodes * 5);
-    return score.clamp(0.0, 100.0);
+    return (100.0 - (penalty / activeNodes * 4)).clamp(0.0, 100.0);
+  }
+
+  void _incrementCategoryRisk(Map<String, int> map, dynamic category) {
+    String cat = (category?.toString() ?? "PERSONAL").toUpperCase();
+    map[cat] = (map[cat] ?? 0) + 1;
   }
 
   Future<void> _toggleExclusion(int id, bool status) async {
     final db = await DBHelper.database;
-    await db.update('accounts', {'is_excluded': status ? 1 : 0}, 
-      where: 'id = ?', whereArgs: [id]);
+    await db.update('accounts', {'is_excluded': status ? 1 : 0}, where: 'id = ?', whereArgs: [id]);
     performSecurityAudit(); 
   }
 
-  void _showExclusionsModal() async {
-    final db = await DBHelper.database;
-    final List<Map<String, dynamic>> excluded = await db.query('accounts', where: 'is_excluded = 1');
-
-    if (!mounted) return;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF0D0D12),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(15))),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            _buildSectionTitle("EXCLUSION_VAULT", Icons.visibility_off),
-            const SizedBox(height: 15),
-            Expanded(
-              child: excluded.isEmpty 
-                ? const Center(child: Text("NO_ACTIVE_EXCEPTIONS", style: TextStyle(color: Colors.white10, fontSize: 10, fontFamily: 'monospace')))
-                : ListView.builder(
-                    itemCount: excluded.length,
-                    itemBuilder: (context, i) => ListTile(
-                      title: Text(excluded[i]['platform'].toString().toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace')),
-                      subtitle: Text(excluded[i]['username'] ?? "---", style: const TextStyle(color: Colors.white38, fontSize: 9)),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.settings_backup_restore, color: Color(0xFF00FBFF), size: 18),
-                        onPressed: () {
-                          _toggleExclusion(excluded[i]['id'], false);
-                          Navigator.pop(context);
-                        },
-                      ),
-                    ),
-                  ),
-            ),
-          ],
-        ),
-      ),
-    );
+  List<AuditResult> get _filteredReports {
+    if (_selectedFilter == null) return _auditReports;
+    return _auditReports.where((r) => r.risk == _selectedFilter).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const Center(child: CircularProgressIndicator(color: Color(0xFF00FBFF), strokeWidth: 1));
+    if (_isLoading) return _buildLoadingScreen();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -189,12 +225,23 @@ class DashboardScreenState extends State<DashboardScreen> {
             _buildSectionTitle("INTEGRITY_INDEX", Icons.analytics_outlined),
             const SizedBox(height: 15),
             _buildAdvancedGauge(),
-            const SizedBox(height: 30),
+            const SizedBox(height: 20),
+            
+            _buildHealthOverview(),
+            const SizedBox(height: 20),
+
+            if (_categoryRisks.isNotEmpty) ...[
+              _buildCategoryAuditRow(),
+              const SizedBox(height: 25),
+            ],
             
             _buildSectionTitle("THREAT_LOG", Icons.security),
             const SizedBox(height: 10),
-            if (_auditReports.isEmpty) _buildNoThreatsCard()
-            else ..._auditReports.map((report) => _buildDetailedReportCard(report)),
+            _buildFilterChips(),
+            const SizedBox(height: 10),
+
+            if (_filteredReports.isEmpty) _buildNoThreatsCard()
+            else ..._filteredReports.map((report) => _buildDetailedReportCard(report)),
             
             if (_excludedCount > 0) ...[
               const SizedBox(height: 30),
@@ -206,6 +253,58 @@ class DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildHealthOverview() {
+    int healthyNodes = (_totalAccounts - _excludedCount) - _auditReports.where((r) => r.risk == RiskLevel.critical).length;
+    return Row(
+      children: [
+        _statusIndicator("SECURE", healthyNodes.toString(), Colors.greenAccent),
+        const SizedBox(width: 8),
+        _statusIndicator("RISKS", _auditReports.length.toString(), Colors.orangeAccent),
+        const SizedBox(width: 8),
+        _statusIndicator("TOTAL", (_totalAccounts - _excludedCount).toString(), Colors.white24),
+      ],
+    );
+  }
+
+  Widget _statusIndicator(String label, String val, Color col) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(color: col.withOpacity(0.05), border: Border.all(color: col.withOpacity(0.1))),
+        child: Column(
+          children: [
+            Text(val, style: TextStyle(color: col, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+            Text(label, style: const TextStyle(color: Colors.white24, fontSize: 7, letterSpacing: 1)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterChips() {
+    return Wrap(
+      spacing: 8,
+      children: [
+        _filterChip("ALL", null, const Color(0xFF00FBFF)),
+        _filterChip("CRITICAL", RiskLevel.critical, Colors.redAccent),
+        _filterChip("WARNING", RiskLevel.warning, Colors.orangeAccent),
+      ],
+    );
+  }
+
+  Widget _filterChip(String label, RiskLevel? level, Color color) {
+    bool isSelected = _selectedFilter == level;
+    return ChoiceChip(
+      label: Text(label, style: TextStyle(fontSize: 8, color: isSelected ? Colors.black : color, fontFamily: 'monospace')),
+      selected: isSelected,
+      onSelected: (val) => setState(() => _selectedFilter = val ? level : null),
+      selectedColor: color,
+      backgroundColor: Colors.transparent,
+      shape: StadiumBorder(side: BorderSide(color: color.withOpacity(0.3))),
+      showCheckmark: false,
     );
   }
 
@@ -222,31 +321,33 @@ class DashboardScreenState extends State<DashboardScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("${_healthScore.toInt()}%", style: TextStyle(color: statusColor, fontSize: 48, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-                  Text("INTEGRITY_INDEX", style: TextStyle(color: statusColor.withOpacity(0.5), fontSize: 8)),
+                  Text("${_healthScore.toInt()}%", style: TextStyle(color: statusColor, fontSize: 44, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                  Text("OVERALL_INTEGRITY", style: TextStyle(color: statusColor.withOpacity(0.5), fontSize: 8)),
                 ],
               ),
-              _infoPoint("MONITORED", "${_totalAccounts - _excludedCount}", Colors.white70),
+              const Icon(Icons.shield_outlined, color: Colors.white10, size: 40),
             ],
           ),
-          const SizedBox(height: 20),
-          LinearProgressIndicator(value: _healthScore / 100, backgroundColor: Colors.white10, color: statusColor, minHeight: 4),
+          const SizedBox(height: 15),
+          LinearProgressIndicator(value: _healthScore / 100, backgroundColor: Colors.white10, color: statusColor, minHeight: 2),
         ],
       ),
     );
   }
 
   Widget _buildDetailedReportCard(AuditResult report) {
-    Color riskColor = report.risk == RiskLevel.critical ? Colors.redAccent : Colors.orangeAccent;
+    Color riskColor = report.risk == RiskLevel.critical 
+        ? Colors.redAccent 
+        : (report.risk == RiskLevel.warning ? Colors.orangeAccent : Colors.blueAccent);
+        
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(color: const Color(0xFF111118), border: Border(left: BorderSide(color: riskColor, width: 2))),
       child: ExpansionTile(
         iconColor: riskColor,
         collapsedIconColor: Colors.white24,
-        leading: Icon(Icons.gpp_maybe_outlined, color: riskColor, size: 20),
-        title: Text(report.platform.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-        subtitle: Text(report.reason, style: TextStyle(color: riskColor.withOpacity(0.8), fontSize: 9, fontFamily: 'monospace')),
+        title: Text(report.platform.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+        subtitle: Text(report.reason, style: TextStyle(color: riskColor.withOpacity(0.8), fontSize: 8, fontFamily: 'monospace')),
         children: [
           Container(
             padding: const EdgeInsets.all(15),
@@ -259,24 +360,21 @@ class DashboardScreenState extends State<DashboardScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    TextButton.icon(
+                    TextButton(
                       onPressed: () => _toggleExclusion(report.id, true),
-                      icon: const Icon(Icons.visibility_off_outlined, size: 14, color: Colors.blueAccent),
-                      label: const Text("IGNORE", style: TextStyle(color: Colors.blueAccent, fontSize: 10, fontFamily: 'monospace')),
+                      child: const Text("IGNORE_NODE", style: TextStyle(color: Colors.blueAccent, fontSize: 9)),
                     ),
-                    const SizedBox(width: 15),
+                    const SizedBox(width: 10),
                     ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: riskColor.withOpacity(0.1), side: BorderSide(color: riskColor.withOpacity(0.3))),
+                      style: ElevatedButton.styleFrom(backgroundColor: riskColor.withOpacity(0.1)),
                       onPressed: () async {
                         final db = await DBHelper.database;
                         final maps = await db.query('accounts', where: 'id = ?', whereArgs: [report.id]);
                         if (maps.isNotEmpty) {
-                          final model = PasswordModel.fromMap(maps.first);
-                          widget.onRepairRequested(model);
-                          Future.delayed(const Duration(seconds: 1), () => performSecurityAudit());
+                          widget.onRepairRequested(PasswordModel.fromMap(maps.first));
                         }
                       }, 
-                      child: Text("REPAIR", style: TextStyle(fontSize: 10, color: riskColor, fontWeight: FontWeight.bold)),
+                      child: Text("FIX_NOW", style: TextStyle(fontSize: 9, color: riskColor)),
                     ),
                   ],
                 )
@@ -288,72 +386,61 @@ class DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildExceptionInfoCard() {
-    return InkWell(
-      onTap: _showExclusionsModal,
-      child: Container(
-        padding: const EdgeInsets.all(15),
-        decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.05), border: Border.all(color: Colors.blueAccent.withOpacity(0.1))),
-        child: const Row(
-          children: [
-            Icon(Icons.info_outline, color: Colors.blueAccent, size: 16),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text("Manual exceptions active. System health calculation reflects partial coverage.", 
-                style: TextStyle(color: Colors.white38, fontSize: 9, fontFamily: 'monospace')),
-            ),
-            Icon(Icons.arrow_forward_ios, color: Color(0xFF00FBFF), size: 10),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title, IconData icon) {
-    return Row(
-      children: [
-        Icon(icon, color: const Color(0xFF00FBFF), size: 16),
-        const SizedBox(width: 10),
-        Text(title, style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace', letterSpacing: 2)),
-        const Expanded(child: Divider(indent: 15, color: Colors.white10)),
-      ],
-    );
-  }
-
-  Widget _detailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: [
-          Text("$label > ", style: const TextStyle(color: Colors.white24, fontSize: 9, fontFamily: 'monospace')),
-          Expanded(child: Text(value, style: const TextStyle(color: Colors.white70, fontSize: 9, fontFamily: 'monospace'))),
-        ],
-      ),
-    );
-  }
-
   String _getMitigation(String reason) {
-    if (reason == "KEY_REUSE") return "Collision detected. Rotate to unique key.";
-    if (reason == "CRITICAL_LENGTH") return "Extreme vulnerability. Increase size.";
-    return "Diversity check failed. Inject symbols/numbers.";
+    if (reason == "ROCKYOU_BREACH_MATCH") return "CRITICAL: Password found in public leaks. Change now.";
+    if (reason == "KEY_REUSE_DETECTED") return "Security collision. Use a unique generator.";
+    if (reason == "CRITICAL_LENGTH") return "Entropy too low. Minimum 12 characters required.";
+    return "Structure weak. Add symbols and numbers.";
   }
 
-  Widget _infoPoint(String label, String val, Color color) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(label, style: const TextStyle(color: Colors.white24, fontSize: 8, fontFamily: 'monospace')),
-        Text(val, style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-      ],
-    );
-  }
+  Widget _buildLoadingScreen() => Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+    const SizedBox(width: 40, child: LinearProgressIndicator(color: Color(0xFF00FBFF), backgroundColor: Colors.white10)),
+    const SizedBox(height: 20),
+    Text(_loadingStatus, style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 9, fontFamily: 'monospace')),
+  ]));
 
-  Widget _buildNoThreatsCard() {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(40.0),
-        child: Text("CORE_STABLE: NO_VULNERABILITIES", style: TextStyle(color: Colors.white10, fontSize: 10, fontFamily: 'monospace')),
-      ),
-    );
+  Widget _buildSectionTitle(String title, IconData icon) => Row(children: [
+    Icon(icon, color: const Color(0xFF00FBFF), size: 14),
+    const SizedBox(width: 10),
+    Text(title, style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace', letterSpacing: 2)),
+    const Expanded(child: Divider(indent: 15, color: Colors.white10)),
+  ]);
+
+  Widget _detailRow(String label, String value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: Row(children: [
+      Text("$label > ", style: const TextStyle(color: Colors.white24, fontSize: 9, fontFamily: 'monospace')),
+      Expanded(child: Text(value, style: const TextStyle(color: Colors.white70, fontSize: 9, fontFamily: 'monospace'))),
+    ]),
+  );
+
+  Widget _buildCategoryAuditRow() => SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: _categoryRisks.entries.map((e) => Container(
+    margin: const EdgeInsets.only(right: 8),
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(color: const Color(0xFF0D0D12), border: Border.all(color: Colors.white10)),
+    child: Text("${e.key}: ${e.value}", style: const TextStyle(color: Colors.redAccent, fontSize: 8, fontFamily: 'monospace')),
+  )).toList()));
+
+  Widget _buildNoThreatsCard() => const Center(child: Padding(padding: EdgeInsets.all(40.0), child: Text("SYSTEM_SECURE: ALL_NODES_OPTIMIZED", style: TextStyle(color: Colors.white10, fontSize: 9, fontFamily: 'monospace'))));
+
+  Widget _buildExceptionInfoCard() => InkWell(onTap: _showExclusionsModal, child: Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.05), border: Border.all(color: Colors.blueAccent.withOpacity(0.1))), child: const Row(children: [
+    Icon(Icons.info_outline, color: Colors.blueAccent, size: 16),
+    SizedBox(width: 12),
+    Expanded(child: Text("Manual exceptions active. Score reflects partial coverage.", style: TextStyle(color: Colors.white38, fontSize: 9, fontFamily: 'monospace'))),
+    Icon(Icons.arrow_forward_ios, color: Color(0xFF00FBFF), size: 10),
+  ])));
+
+  void _showExclusionsModal() async {
+    final db = await DBHelper.database;
+    final List<Map<String, dynamic>> excluded = await db.query('accounts', where: 'is_excluded = 1');
+    if (!mounted) return;
+    showModalBottomSheet(context: context, backgroundColor: const Color(0xFF0D0D12), builder: (context) => Container(padding: const EdgeInsets.all(20), child: Column(children: [
+      _buildSectionTitle("EXCLUSION_VAULT", Icons.visibility_off),
+      const SizedBox(height: 15),
+      Expanded(child: ListView.builder(itemCount: excluded.length, itemBuilder: (context, i) => ListTile(
+        title: Text(excluded[i]['platform'].toString().toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace')),
+        trailing: IconButton(icon: const Icon(Icons.settings_backup_restore, color: Color(0xFF00FBFF)), onPressed: () { _toggleExclusion(excluded[i]['id'], false); Navigator.pop(context); }),
+      ))),
+    ])));
   }
 }
