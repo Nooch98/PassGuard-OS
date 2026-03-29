@@ -30,10 +30,22 @@ class AuditResult {
   });
 
   Map<String, dynamic> toMap() => {
-    'reason': reason,
-    'risk': risk.index,
-    'entropy': entropy,
-  };
+        'reason': reason,
+        'risk': risk.index,
+        'entropy': entropy,
+        'ts': DateTime.now().millisecondsSinceEpoch,
+      };
+
+  factory AuditResult.fromCache(int id, String platform, String username, Map<String, dynamic> map) {
+    return AuditResult(
+      id: id,
+      platform: platform,
+      username: username,
+      reason: map['reason'] ?? "UNKNOWN",
+      risk: RiskLevel.values[map['risk'] ?? 2],
+      entropy: (map['entropy'] as num? ?? 0.0).toDouble(),
+    );
+  }
 }
 
 class DashboardScreen extends StatefulWidget {
@@ -89,10 +101,13 @@ class DashboardScreenState extends State<DashboardScreen> {
     if (!mounted) return;
     setState(() {
       _isLoading = true;
-      _loadingStatus = "SCANNING_VAULT_NODES...";
+      _loadingStatus = "SYNCING_VAULT_INTEGRITY...";
     });
 
     try {
+      final db = await DBHelper.database;
+      await db.execute("UPDATE accounts SET audit_cache = NULL WHERE is_excluded = 0 AND audit_cache LIKE '%\"excluded\":true%'");
+
       final rows = await DBHelper.getRawAccounts();
       _totalAccounts = rows.length;
       
@@ -107,7 +122,6 @@ class DashboardScreenState extends State<DashboardScreen> {
       if (mounted) {
         setState(() {
           _auditReports = results['reports'];
-          _categoryRisks = results['catRisks'];
           _avgEntropy = results['avgEntropy'];
           _weakCount = results['weak'];
           _medCount = results['med'];
@@ -116,11 +130,42 @@ class DashboardScreenState extends State<DashboardScreen> {
           _healthScore = _calculateHealth();
           _isLoading = false;
         });
+
+        await _persistAuditResults(results['reports']);
       }
     } catch (e) {
       debugPrint("AUDIT_ERROR: $e");
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _persistAuditResults(List<AuditResult> reports) async {
+    final db = await DBHelper.database;
+    final batch = db.batch();
+
+    for (var report in reports) {
+      batch.update(
+        'accounts',
+        {'audit_cache': jsonEncode(report.toMap())},
+        where: 'id = ?',
+        whereArgs: [report.id],
+      );
+    }
+    await batch.commit(noResult: true);
+    debugPrint("AUDIT_CACHE_UPDATED: ${reports.length} nodes");
+  }
+
+  String _getBruteForceEstimate(double entropy) {
+    double seconds = math.pow(2, entropy) / 100000000000;
+
+    if (seconds < 1) return "INSTANT (OFFLINE)";
+    if (seconds < 3600) return "${(seconds / 60).toStringAsFixed(0)} MINUTES";
+    if (seconds < 86400) return "${(seconds / 3600).toStringAsFixed(0)} HOURS";
+    if (seconds < 2592000) return "${(seconds / 86400).toStringAsFixed(0)} DAYS";
+    if (seconds < 31536000) return "${(seconds / 2592000).toStringAsFixed(0)} MONTHS";
+    if (seconds < 3153600000) return "${(seconds / 31536000).toStringAsFixed(0)} YEARS";
+    
+    return "CENTURIES (SAFE)";
   }
 
   static Map<String, dynamic> _heavyAuditTask(Map<String, dynamic> data) {
@@ -129,15 +174,27 @@ class DashboardScreenState extends State<DashboardScreen> {
     final Set<String> breachSet = data['breachSet'];
 
     List<AuditResult> tempReports = [];
-    Map<String, int> tempCategoryRisks = {};
+    List<int> cleanNodes = [];
+    List<Map<String, dynamic>> excludedNodesInfo = [];
     Map<String, List<Map<String, dynamic>>> passwordGroups = {};
+    
     double totalEntropy = 0;
     int analyzedCount = 0;
     int weak = 0, med = 0, strong = 0, excluded = 0;
 
+    const double hashSpeed = 1e11; 
+    const int thirtyDaysInSeconds = 2592000;
+
     for (var row in rows) {
-      if ((row['is_excluded'] as int? ?? 0) == 1) {
+      final bool isExcluded = (row['is_excluded'] as int? ?? 0) == 1;
+      
+      if (isExcluded) {
         excluded++;
+        excludedNodesInfo.add({
+          'id': row['id'],
+          'platform': row['platform'],
+          'username': row['username']
+        });
         continue;
       }
 
@@ -152,21 +209,53 @@ class DashboardScreenState extends State<DashboardScreen> {
       double entropy = _staticCalculateEntropy(decrypted);
       totalEntropy += entropy;
 
-      if (entropy < 35) weak++;
+      double secondsToCrack = math.pow(2, entropy) / hashSpeed;
+      
+      if (entropy < 40) weak++;
       else if (entropy < 65) med++;
       else strong++;
 
+      bool hasThreat = false;
+
       var digest = sha1.convert(utf8.encode(decrypted)).toString();
       if (breachSet.contains(digest.substring(0, 10))) {
-        tempReports.add(AuditResult(id: row['id'], platform: row['platform'], username: row['username'] ?? "---", risk: RiskLevel.critical, reason: "ROCKYOU_BREACH_MATCH", entropy: entropy));
+        hasThreat = true;
+        tempReports.add(AuditResult(
+          id: row['id'], 
+          platform: row['platform'], 
+          username: row['username'] ?? "---", 
+          risk: RiskLevel.critical, 
+          reason: "ROCKYOU_BREACH_MATCH", 
+          entropy: entropy
+        ));
       }
 
-      if (_staticHasKeyboardPattern(decrypted)) {
-        tempReports.add(AuditResult(id: row['id'], platform: row['platform'], username: row['username'] ?? "---", risk: RiskLevel.warning, reason: "KEYBOARD_PATTERN_DETECTED", entropy: entropy));
+      if (secondsToCrack < thirtyDaysInSeconds && !hasThreat) {
+        hasThreat = true;
+        tempReports.add(AuditResult(
+          id: row['id'], 
+          platform: row['platform'], 
+          username: row['username'] ?? "---", 
+          risk: secondsToCrack < 3600 ? RiskLevel.critical : RiskLevel.warning, 
+          reason: secondsToCrack < 3600 ? "INSTANT_CRACK_VULNERABILITY" : "LOW_COMPUTATIONAL_COST", 
+          entropy: entropy
+        ));
       }
 
-      if (entropy < 45) {
-        tempReports.add(AuditResult(id: row['id'], platform: row['platform'], username: row['username'] ?? "---", risk: entropy < 30 ? RiskLevel.critical : RiskLevel.warning, reason: entropy < 30 ? "CRITICAL_LOW_ENTROPY" : "WEAK_STRUCTURE", entropy: entropy));
+      if (_staticHasKeyboardPattern(decrypted) && !hasThreat) {
+        hasThreat = true;
+        tempReports.add(AuditResult(
+          id: row['id'], 
+          platform: row['platform'], 
+          username: row['username'] ?? "---", 
+          risk: RiskLevel.warning, 
+          reason: "KEYBOARD_PATTERN_DETECTED", 
+          entropy: entropy
+        ));
+      }
+
+      if (!hasThreat && entropy >= 60) {
+        cleanNodes.add(row['id']);
       }
 
       passwordGroups.putIfAbsent(decrypted, () => []).add(row);
@@ -176,16 +265,28 @@ class DashboardScreenState extends State<DashboardScreen> {
       if (instances.length > 1) {
         for (var inst in instances) {
           if ((inst['is_excluded'] as int? ?? 0) == 1) continue;
-          tempReports.add(AuditResult(id: inst['id'], platform: inst['platform'], username: inst['username'] ?? "---", risk: RiskLevel.critical, reason: "KEY_REUSE_DETECTED", entropy: _staticCalculateEntropy(pass)));
+          
+          tempReports.add(AuditResult(
+            id: inst['id'], 
+            platform: inst['platform'], 
+            username: inst['username'] ?? "---", 
+            risk: RiskLevel.critical, 
+            reason: "KEY_REUSE_DETECTED", 
+            entropy: _staticCalculateEntropy(pass)
+          ));
         }
       }
     });
 
     return {
       'reports': tempReports,
-      'catRisks': tempCategoryRisks,
+      'cleanNodes': cleanNodes,
+      'excludedNodes': excludedNodesInfo,
       'avgEntropy': analyzedCount > 0 ? totalEntropy / analyzedCount : 0.0,
-      'weak': weak, 'med': med, 'strong': strong, 'excluded': excluded
+      'weak': weak, 
+      'med': med, 
+      'strong': strong, 
+      'excluded': excluded
     };
   }
 
@@ -207,18 +308,28 @@ class DashboardScreenState extends State<DashboardScreen> {
   double _calculateHealth() {
     int activeNodes = _totalAccounts - _excludedCount;
     if (activeNodes <= 0) return 100.0;
+    
     double penalty = 0;
     for (var report in _auditReports) {
-      if (report.risk == RiskLevel.critical) penalty += 20.0;
-      else if (report.risk == RiskLevel.warning) penalty += 8.0;
-      else penalty += 2.0;
+      if (report.risk == RiskLevel.critical) penalty += 25.0;
+      else if (report.risk == RiskLevel.warning) penalty += 10.0;
     }
-    return (100.0 - (penalty / activeNodes * 4)).clamp(0.0, 100.0);
+
+    double score = 100.0 - (penalty / math.sqrt(activeNodes + 1) * 2);
+    return score.clamp(0.0, 100.0);
   }
 
   Future<void> _toggleExclusion(int id, bool status) async {
     final db = await DBHelper.database;
-    await db.update('accounts', {'is_excluded': status ? 1 : 0}, where: 'id = ?', whereArgs: [id]);
+    await db.update(
+      'accounts', 
+      {
+        'is_excluded': status ? 1 : 0,
+        'audit_cache': null
+      }, 
+      where: 'id = ?', 
+      whereArgs: [id]
+    );
     performSecurityAudit(); 
   }
 
@@ -485,18 +596,11 @@ class DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  String _getBruteForceEstimate(double entropy) {
-    if (entropy < 28) return "SECONDS (INSTANT)";
-    if (entropy < 45) return "MINUTES / HOURS";
-    if (entropy < 60) return "DAYS / MONTHS";
-    if (entropy < 75) return "YEARS / DECADES";
-    return "CENTURIES / UNBREAKABLE";
-  }
-
   String _getMitigation(String reason) {
     if (reason == "ROCKYOU_BREACH_MATCH") return "CRITICAL: This key exists in known leak databases. It will be cracked instantly. Generate a new one immediately.";
     if (reason == "KEY_REUSE_DETECTED") return "SECURITY BREACH: You are using the same key for multiple platforms. A single leak will compromise all accounts.";
     if (reason == "KEYBOARD_PATTERN_DETECTED") return "VULNERABILITY: Predictable keyboard sequence detected. Brute-force tools prioritize these patterns.";
+    if (reason == "LOW_COMPUTATIONAL_COST") return "WARNING: Modern GPUs can crack this in less than a month. It is not future-proof.";
     return "IMPROVEMENT: Key structure is basic. Consider adding special characters and increasing length.";
   }
 
