@@ -44,7 +44,7 @@ class DBHelper {
     
     return await openDatabase(
       path,
-      version: 7,
+      version: 8,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -90,6 +90,7 @@ class DBHelper {
       if (oldVersion < 5) await safeAddColumn('accounts', 'otp_meta', 'TEXT');
       if (oldVersion < 6) await safeAddColumn('accounts', 'origin', 'TEXT');
       if (oldVersion < 7) await safeAddColumn('accounts', 'is_excluded', 'INTEGER DEFAULT 0');
+      if (oldVersion < 8) await safeAddColumn('accounts', 'audit_cache', 'TEXT');
     },
     );
   }
@@ -99,7 +100,7 @@ class DBHelper {
       CREATE TABLE accounts(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         platform TEXT NOT NULL,
-        origin TEXT, -- Campo vital añadido para v6
+        origin TEXT,
         username TEXT,
         password TEXT NOT NULL,
         password_fp TEXT,
@@ -112,7 +113,8 @@ class DBHelper {
         is_favorite INTEGER DEFAULT 0,
         password_history TEXT,
         otp_meta TEXT,
-        is_excluded INTEGER DEFAULT 0
+        is_excluded INTEGER DEFAULT 0,
+        audit_cache TEXT
       )
     ''');
 
@@ -243,6 +245,11 @@ class DBHelper {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query('accounts');
     return List.generate(maps.length, (i) => PasswordModel.fromMap(maps[i]));
+  }
+
+  static Future<List<Map<String, dynamic>>> getRawAccounts() async {
+    final db = await database;
+    return await db.query('accounts');
   }
 
   static Future<void> forceLinkOrigin(int accountId, String origin) async {
