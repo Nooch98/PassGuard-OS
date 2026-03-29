@@ -9,6 +9,7 @@
 ![badge](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Android-lightgrey?style=flat)
 ![badge](https://img.shields.io/badge/Encryption-Argon2id-red?style=flat&logo=lock)
 ![badge](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat)
+![badge](https://img.shields.io/badge/Audit_Engine-Multi--Threaded-blueviolet?style=flat&logo=speedtest)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Nooch98/PassGuard-OS)
 
 ## 📑 Table of Contents
@@ -63,15 +64,23 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 | Argon2id | Memory-hard KDF (64MB, 3 iterations) |
 | PBKDF2 | Legacy support with 200,000 iterations for backward compatibility |
 | AES-256-GCM | Authenticated encryption for all stored data (Confidentiality + Integrity) |
-| Secure Byte Handling | Use of `Uint8List` instead of `String` for cryptographic operations
+| Secure Byte Handling | Use of `Uint8List` instead of `String` for cryptographic operations |
 | Biometric Lock | Fingerprint(recomended)/Face ID support (Android) |
 | Auto-Lock | Configurable session timeout (1-30 min) |
 | Panic Mode | Emergency wipe triggered by password or biometric |
 | Screenshot Protection | Prevents screenshots on Android |
 | Failed Login Lockout | 5 Attempts = 30-second lockout |
+| Entropy Analysis | Shannon Entropy calculation to measure mathematical unpredictability. |
+| Isolate Computing | Offloads decryption and audit tasks to a separate CPU thread to prevent memory-sniffing on the main thread during idle. |
+| Brute-Force Estimator | Real-time calculation of "Time-to-Crack" based on 100 GH/s attack vectors. |
 
 ### Password Health Dashboard
 Keep your security under control with a real-time analysis of your vault:
+* **Multi-Threaded Audit:** Uses Dart Isolates (`compute`) to perform heavy cryptographic checks without freezing the UI.
+* **Brute-Force Time Estimation:** Categorizes threats based on the actual time a modern GPU (100 GH/s) would take to crack the key.
+* **Breach Dictionary (RockYou):** Local SHA-1 prefix matching against known leaked databases.
+* **Exclusion Manager:** Ability to ignore specific nodes (e.g., platform-limited passwords) to maintain a clean Health Score.
+* **Smart Cache:** Results are persisted in an `audit_cache` to provide instant dashboard loading on subsequent launches.
 * **Weak Password Detection:** Identifies credentials vulnerable to brute-force attacks.
 * **Reuse Detection:** Locates duplicate passwords across different services.
 * **Old Password Alerts:** Automatic notifications for credentials older than 90 days.
@@ -392,6 +401,33 @@ Before releasing this as v1.0, the following measures were taken:
 >[!IMPORTANT]
 > While this app implements strong security practices, it has not been professionally audited. Use at your own discretion.
 
+### Threat Audit Logic
+
+PassGuard OS categorizes risks using a priority-queue logic, ensuring that the most dangerous vulnerabilities are addressed first:
+
+1. 🔴 **CRITICAL: Breach Match**
+   * **Finding:** The SHA-1 hash prefix of your password was found in the local `breach_db.txt` (RockYou database).
+   * **Risk:** This password has been leaked in past data breaches and is present in every hacker's dictionary. It will be cracked **instantly**.
+
+2. 🔴 **CRITICAL: Key Reuse Detected**
+   * **Finding:** The same password is being used across multiple platforms.
+   * **Risk:** A single leak on one site grants access to all linked accounts. This is the #1 cause of mass account takeovers.
+
+3. 🔴/🟠 **CRITICAL/WARNING: Computational Crack Time**
+   * **Finding:** The system simulates an offline brute-force attack using high-end hardware (100 GH/s GPU performance) to estimate resistance.
+   * **Thresholds:**
+     * **< 1 Hour (CRITICAL):** Extremely vulnerable. Standard automated tools can guess this password during a lunch break.
+     * **< 30 Days (WARNING):** Suboptimal security. While not instant, it is not "future-proof" against modern hardware clusters.
+     * **Years / Centuries (SECURE):** Optimal entropy. The password is mathematically robust against current brute-force standards.
+
+4. 🟠 **WARNING: Keyboard Patterns**
+   * **Finding:** Detection of predictable sequential patterns (e.g., `qwerty`, `asdfgh`, `123456`).
+   * **Risk:** Even if the password is long, brute-force algorithms prioritize these patterns, making them significantly easier to crack than random strings.
+
+> [!NOTE]
+> **Why am I seeing "Critical" for 8-character passwords?**
+> In 2026, an 8-character password—even with symbols—can be cracked in under an hour by a single modern GPU. PassGuard OS uses these aggressive "real-world" hardware benchmarks to ensure your vault stays ahead of current cyber-threats.
+
 ### Threat Model
 PassGuard OS is a personal project following a Zero-Knowledge and Offline-First model. This threat model defines the security boundaries of the current implementation:
 
@@ -402,6 +438,7 @@ PassGuard OS is a personal project following a Zero-Knowledge and Offline-First 
 * **Local IPC/Extension Attacks**: Mitigated via per-session authentication tokens and origin validation.
 * **Duress/Coercion**: Mitigated via Panic Protocol (immediate destruction of the local vault).
 * **Step-by-Step Data Leakage**: Mitigated via **Volatile Session Storage**. When handling multi-page logins (e.g., Google), the username is temporarily stored in the tab's `sessionStorage`. This data is never written to disk, is isolated per tab, and is wiped immediately after the credential set is completed or the tab is closed.
+* **Audit Memory Residency:** During a security audit, the vault is decrypted in a temporary Isolate. While this isolate is destroyed after the task, the plain-text passwords exist in RAM for the duration of the scan (usually < 2 seconds).
 
 **Known Limitations**
 
