@@ -464,10 +464,38 @@ class SteganographyService {
     }
     return hash >>> 0;
   }
+
+  StegoCheckResult checkCapacity(int width, int height, String encryptedData) {
+    final int payloadBytes = utf8.encode(encryptedData).length;
+    const int headerBytes = 16;
+    final int totalRequiredBytes = headerBytes + payloadBytes;
+
+    final int totalAvailableBits = width * height * 3;
+    final int maxUsableBytes = totalAvailableBits ~/ (8 * repeatFactor);
+
+    final bool fits = totalRequiredBytes <= maxUsableBytes;
+    final double usage = (totalRequiredBytes / maxUsableBytes) * 100;
+
+    return StegoCheckResult(
+      fits: fits,
+      usagePercentage: usage > 100 ? 100.0 : usage,
+      availableBytes: maxUsableBytes,
+      requiredBytes: totalRequiredBytes,
+    );
+  }
 }
 
 extension _ListReserve<T> on List<T> {
   void reserveCapacity(int _) {
     // No-op in Dart. Exists for readability / parity with other langs.
   }
+}
+
+class StegoCheckResult {
+  final bool fits;
+  final double usagePercentage;
+  final int availableBytes;
+  final int requiredBytes;
+
+  StegoCheckResult({required this.fits, required this.usagePercentage, required this.availableBytes, required this.requiredBytes});
 }
