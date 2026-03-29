@@ -17,6 +17,8 @@
 |--------------------------------------------------------------------------
 */
 
+import 'package:passguard/models/password_model.dart';
+import 'package:passguard/models/recovery_code_model.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -207,6 +209,40 @@ class DBHelper {
     } 
 
     return {"status": "NOT_FOUND"};
+  }
+
+  static Future<int> insertPassword(PasswordModel password) async {
+    final db = await database;
+    return await db.insert(
+      'accounts',
+      password.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<int> insertRecoveryCode(RecoveryCodeModel code) async {
+    final db = await database;
+    return await db.insert(
+      'recovery_codes',
+      code.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  static Future<bool> checkIfPasswordExists(String platform, String? username) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      'accounts',
+      where: 'platform = ? AND username = ?',
+      whereArgs: [platform, username],
+    );
+    return results.isNotEmpty;
+  }
+
+  static Future<List<PasswordModel>> getAllPasswords() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('accounts');
+    return List.generate(maps.length, (i) => PasswordModel.fromMap(maps[i]));
   }
 
   static Future<void> forceLinkOrigin(int accountId, String origin) async {
