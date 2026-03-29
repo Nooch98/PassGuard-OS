@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/foundation.dart';
 import 'dart:typed_data';
 import 'dart:async';
 import 'dart:convert';
@@ -27,6 +28,12 @@ class AuditResult {
     required this.risk,
     this.entropy = 0.0,
   });
+
+  Map<String, dynamic> toMap() => {
+    'reason': reason,
+    'risk': risk.index,
+    'entropy': entropy,
+  };
 }
 
 class DashboardScreen extends StatefulWidget {
@@ -52,9 +59,10 @@ class DashboardScreenState extends State<DashboardScreen> {
   double _avgEntropy = 0.0;
   List<AuditResult> _auditReports = [];
   Map<String, int> _categoryRisks = {};
-
   Set<String> _breachHashSet = {};
   RiskLevel? _selectedFilter;
+
+  int _weakCount = 0, _medCount = 0, _strongCount = 0;
 
   @override
   void initState() {
@@ -76,158 +84,124 @@ class DashboardScreenState extends State<DashboardScreen> {
       debugPrint("Breach DB not found, skipping local check: $e");
     }
   }
+  
+  Future<void> performSecurityAudit() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _loadingStatus = "SCANNING_VAULT_NODES...";
+    });
 
-  double _calculateEntropy(String password) {
+    try {
+      final rows = await DBHelper.getRawAccounts();
+      _totalAccounts = rows.length;
+      
+      final auditData = {
+        'rows': rows,
+        'masterKey': widget.masterKey,
+        'breachSet': _breachHashSet,
+      };
+
+      final results = await compute(_heavyAuditTask, auditData);
+
+      if (mounted) {
+        setState(() {
+          _auditReports = results['reports'];
+          _categoryRisks = results['catRisks'];
+          _avgEntropy = results['avgEntropy'];
+          _weakCount = results['weak'];
+          _medCount = results['med'];
+          _strongCount = results['strong'];
+          _excludedCount = results['excluded'];
+          _healthScore = _calculateHealth();
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("AUDIT_ERROR: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  static Map<String, dynamic> _heavyAuditTask(Map<String, dynamic> data) {
+    final List<Map<String, dynamic>> rows = data['rows'];
+    final Uint8List masterKey = data['masterKey'];
+    final Set<String> breachSet = data['breachSet'];
+
+    List<AuditResult> tempReports = [];
+    Map<String, int> tempCategoryRisks = {};
+    Map<String, List<Map<String, dynamic>>> passwordGroups = {};
+    double totalEntropy = 0;
+    int analyzedCount = 0;
+    int weak = 0, med = 0, strong = 0, excluded = 0;
+
+    for (var row in rows) {
+      if ((row['is_excluded'] as int? ?? 0) == 1) {
+        excluded++;
+        continue;
+      }
+
+      final decrypted = EncryptionService.decrypt(
+        combinedText: row['password'] as String,
+        masterKeyBytes: masterKey,
+      );
+
+      if (decrypted.isEmpty || decrypted.startsWith("ERROR:")) continue;
+
+      analyzedCount++;
+      double entropy = _staticCalculateEntropy(decrypted);
+      totalEntropy += entropy;
+
+      if (entropy < 35) weak++;
+      else if (entropy < 65) med++;
+      else strong++;
+
+      var digest = sha1.convert(utf8.encode(decrypted)).toString();
+      if (breachSet.contains(digest.substring(0, 10))) {
+        tempReports.add(AuditResult(id: row['id'], platform: row['platform'], username: row['username'] ?? "---", risk: RiskLevel.critical, reason: "ROCKYOU_BREACH_MATCH", entropy: entropy));
+      }
+
+      if (_staticHasKeyboardPattern(decrypted)) {
+        tempReports.add(AuditResult(id: row['id'], platform: row['platform'], username: row['username'] ?? "---", risk: RiskLevel.warning, reason: "KEYBOARD_PATTERN_DETECTED", entropy: entropy));
+      }
+
+      if (entropy < 45) {
+        tempReports.add(AuditResult(id: row['id'], platform: row['platform'], username: row['username'] ?? "---", risk: entropy < 30 ? RiskLevel.critical : RiskLevel.warning, reason: entropy < 30 ? "CRITICAL_LOW_ENTROPY" : "WEAK_STRUCTURE", entropy: entropy));
+      }
+
+      passwordGroups.putIfAbsent(decrypted, () => []).add(row);
+    }
+
+    passwordGroups.forEach((pass, instances) {
+      if (instances.length > 1) {
+        for (var inst in instances) {
+          if ((inst['is_excluded'] as int? ?? 0) == 1) continue;
+          tempReports.add(AuditResult(id: inst['id'], platform: inst['platform'], username: inst['username'] ?? "---", risk: RiskLevel.critical, reason: "KEY_REUSE_DETECTED", entropy: _staticCalculateEntropy(pass)));
+        }
+      }
+    });
+
+    return {
+      'reports': tempReports,
+      'catRisks': tempCategoryRisks,
+      'avgEntropy': analyzedCount > 0 ? totalEntropy / analyzedCount : 0.0,
+      'weak': weak, 'med': med, 'strong': strong, 'excluded': excluded
+    };
+  }
+
+  static double _staticCalculateEntropy(String password) {
     if (password.isEmpty) return 0;
     double poolSize = 0;
     if (password.contains(RegExp(r'[a-z]'))) poolSize += 26;
     if (password.contains(RegExp(r'[A-Z]'))) poolSize += 26;
     if (password.contains(RegExp(r'[0-9]'))) poolSize += 10;
     if (password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'))) poolSize += 32;
-    if (poolSize == 0) poolSize = 1;
-    return password.length * (math.log(poolSize) / math.log(2));
+    return password.length * (math.log(poolSize > 0 ? poolSize : 1) / math.log(2));
   }
 
-  String _getBruteForceEstimate(double entropy) {
-    if (entropy < 28) return "SECONDS (INSTANT)";
-    if (entropy < 45) return "MINUTES / HOURS";
-    if (entropy < 60) return "DAYS / MONTHS";
-    if (entropy < 75) return "YEARS / DECADES";
-    return "CENTURIES / UNBREAKABLE";
-  }
-
-  bool _hasKeyboardPattern(String password) {
-    const patterns = ['qwerty', 'asdfgh', 'zxcvbn', '123456', 'qazwsx', 'p0o9i8'];
-    String lower = password.toLowerCase();
-    return patterns.any((p) => lower.contains(p));
-  }
-
-  Future<void> performSecurityAudit() async {
-    if (!mounted) return;
-    setState(() {
-      _isLoading = true;
-      _loadingStatus = "ACCESSING_ENCRYPTED_VAULT...";
-    });
-
-    try {
-      final db = await DBHelper.database;
-      await Future.delayed(const Duration(milliseconds: 400));
-      
-      final List<Map<String, dynamic>> rows = await db.query('accounts');
-      
-      Map<String, List<Map<String, dynamic>>> passwordGroups = {};
-      List<AuditResult> tempReports = [];
-      Map<String, int> tempCategoryRisks = {};
-      double totalEntropy = 0;
-      int analyzedCount = 0;
-      
-      _totalAccounts = rows.length;
-      _excludedCount = 0;
-
-      for (var row in rows) {
-        if ((row['is_excluded'] as int? ?? 0) == 1) {
-          _excludedCount++;
-          continue;
-        }
-
-        final decrypted = EncryptionService.decrypt(
-          combinedText: row['password'] as String,
-          masterKeyBytes: widget.masterKey,
-        );
-
-        if (decrypted.isEmpty || decrypted.startsWith("ERROR:")) continue;
-
-        analyzedCount++;
-        double entropy = _calculateEntropy(decrypted);
-        totalEntropy += entropy;
-
-        var bytes = utf8.encode(decrypted);
-        var digest = sha1.convert(bytes).toString();
-        var truncatedHash = digest.substring(0, 10);
-
-        if (_breachHashSet.contains(truncatedHash)) {
-          tempReports.add(AuditResult(
-            id: row['id'] as int,
-            platform: row['platform']?.toString() ?? "UNKNOWN",
-            username: row['username']?.toString() ?? "---",
-            risk: RiskLevel.critical,
-            reason: "ROCKYOU_BREACH_MATCH",
-            entropy: entropy,
-          ));
-          _incrementCategoryRisk(tempCategoryRisks, row['category']);
-        }
-
-        if (_hasKeyboardPattern(decrypted)) {
-          tempReports.add(AuditResult(
-            id: row['id'] as int,
-            platform: row['platform']?.toString() ?? "UNKNOWN",
-            username: row['username']?.toString() ?? "---",
-            risk: RiskLevel.warning,
-            reason: "KEYBOARD_PATTERN_DETECTED",
-            entropy: entropy,
-          ));
-        }
-
-        if (entropy < 45) {
-          tempReports.add(AuditResult(
-            id: row['id'] as int,
-            platform: row['platform']?.toString() ?? "UNKNOWN",
-            username: row['username']?.toString() ?? "---",
-            risk: entropy < 30 ? RiskLevel.critical : RiskLevel.warning,
-            reason: entropy < 30 ? "CRITICAL_LOW_ENTROPY" : "WEAK_STRUCTURE",
-            entropy: entropy,
-          ));
-          _incrementCategoryRisk(tempCategoryRisks, row['category']);
-        }
-
-        final String? dateStr = row['updated_at'] ?? row['created_at'];
-        if (dateStr != null) {
-          final lastUpdate = DateTime.parse(dateStr);
-          final daysOld = DateTime.now().difference(lastUpdate).inDays;
-          if (daysOld > 180) {
-            tempReports.add(AuditResult(
-              id: row['id'] as int,
-              platform: row['platform']?.toString() ?? "UNKNOWN",
-              username: row['username']?.toString() ?? "---",
-              risk: RiskLevel.info,
-              reason: "STALE_KEY ($daysOld DAYS)",
-              entropy: entropy,
-            ));
-          }
-        }
-
-        passwordGroups.putIfAbsent(decrypted, () => []).add(row);
-      }
-
-      passwordGroups.forEach((pass, instances) {
-        if (instances.length > 1) {
-          double groupEntropy = _calculateEntropy(pass);
-          for (var inst in instances) {
-            if ((inst['is_excluded'] as int? ?? 0) == 1) continue;
-            tempReports.add(AuditResult(
-              id: inst['id'],
-              platform: inst['platform'],
-              username: inst['username'] ?? "---",
-              risk: RiskLevel.critical,
-              reason: "KEY_REUSE_DETECTED",
-              entropy: groupEntropy,
-            ));
-          }
-        }
-      });
-
-      if (mounted) {
-        setState(() {
-          _auditReports = tempReports;
-          _categoryRisks = tempCategoryRisks;
-          _avgEntropy = analyzedCount > 0 ? totalEntropy / analyzedCount : 0;
-          _healthScore = _calculateHealth();
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
-    }
+  static bool _staticHasKeyboardPattern(String password) {
+    const patterns = ['qwerty', 'asdfgh', 'zxcvbn', '123456', 'qazwsx'];
+    return patterns.any((p) => password.toLowerCase().contains(p));
   }
 
   double _calculateHealth() {
@@ -240,11 +214,6 @@ class DashboardScreenState extends State<DashboardScreen> {
       else penalty += 2.0;
     }
     return (100.0 - (penalty / activeNodes * 4)).clamp(0.0, 100.0);
-  }
-
-  void _incrementCategoryRisk(Map<String, int> map, dynamic category) {
-    String cat = (category?.toString() ?? "PERSONAL").toUpperCase();
-    map[cat] = (map[cat] ?? 0) + 1;
   }
 
   Future<void> _toggleExclusion(int id, bool status) async {
@@ -274,31 +243,30 @@ class DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 15),
             _buildAdvancedGauge(),
             const SizedBox(height: 15),
+            _buildSecurityDistribution(),
+            const SizedBox(height: 15),
             _buildCyberSummary(),
             const SizedBox(height: 20),
-            
             _buildHealthOverview(),
-            const SizedBox(height: 20),
-
-            if (_categoryRisks.isNotEmpty) ...[
-              _buildCategoryAuditRow(),
-              const SizedBox(height: 25),
-            ],
             
+            const SizedBox(height: 25),
             _buildSectionTitle("THREAT_LOG", Icons.security),
             const SizedBox(height: 10),
             _buildFilterChips(),
             const SizedBox(height: 10),
-
-            if (_filteredReports.isEmpty) _buildNoThreatsCard()
-            else ..._filteredReports.map((report) => _buildDetailedReportCard(report)),
             
+            if (_filteredReports.isEmpty) 
+              _buildNoThreatsCard()
+            else 
+              ..._filteredReports.map((report) => _buildDetailedReportCard(report)),
+
             if (_excludedCount > 0) ...[
               const SizedBox(height: 30),
-              _buildSectionTitle("ACTIVE_EXCEPTIONS", Icons.do_not_disturb_on_total_silence),
+              _buildSectionTitle("VAULT_EXCLUSIONS", Icons.visibility_off_outlined),
               const SizedBox(height: 10),
               _buildExceptionInfoCard(),
             ],
+            
             const SizedBox(height: 100),
           ],
         ),
@@ -306,18 +274,98 @@ class DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildCyberSummary() {
+  Widget _buildSecurityDistribution() {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(color: Colors.white.withOpacity(0.02), border: Border.all(color: Colors.white10)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("STRENGTH_DISTRIBUTION", style: TextStyle(color: Colors.white24, fontSize: 7, fontFamily: 'monospace')),
+          const SizedBox(height: 15),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _bar(_weakCount, Colors.redAccent, "WEAK"),
+              _bar(_medCount, Colors.orangeAccent, "MED"),
+              _bar(_strongCount, Colors.greenAccent, "STRONG"),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bar(int count, Color color, String label) {
+    double maxVal = math.max(_weakCount, math.max(_medCount, _strongCount)).toDouble();
+    double height = maxVal == 0 ? 2 : (count / maxVal) * 60;
+    
+    return Expanded(
+      child: Column(
+        children: [
+          Text(count.toString(), style: TextStyle(color: color, fontSize: 10, fontFamily: 'monospace')),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 800),
+            height: height,
+            margin: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              border: Border(top: BorderSide(color: color, width: 2))
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(color: Colors.white24, fontSize: 6)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdvancedGauge() {
+    Color statusColor = _healthScore > 80 ? const Color(0xFF00FF41) : (_healthScore > 50 ? Colors.orangeAccent : Colors.redAccent);
+    return Container(
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03),
-        border: Border.all(color: Colors.white10),
+        gradient: LinearGradient(colors: [statusColor.withOpacity(0.1), Colors.transparent], begin: Alignment.topLeft),
+        color: const Color(0xFF0D0D12), 
+        border: Border.all(color: statusColor.withOpacity(0.2))
       ),
       child: Column(
         children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("${_healthScore.toInt()}%", style: TextStyle(color: statusColor, fontSize: 44, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                  Text("OVERALL_INTEGRITY_STATUS", style: TextStyle(color: statusColor.withOpacity(0.5), fontSize: 8, letterSpacing: 1)),
+                ],
+              ),
+              TweenAnimationBuilder(
+                tween: Tween<double>(begin: 0, end: 1),
+                duration: const Duration(seconds: 2),
+                builder: (context, double value, child) => Opacity(
+                  opacity: value,
+                  child: Icon(Icons.shield_rounded, color: statusColor.withOpacity(0.2), size: 50),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 15),
+          LinearProgressIndicator(value: _healthScore / 100, backgroundColor: Colors.white10, color: statusColor, minHeight: 2),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCyberSummary() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), border: Border.all(color: Colors.white10)),
+      child: Column(children: [
           _cyberRow("AVG_ENTROPY_SYSTEM", "${_avgEntropy.toStringAsFixed(1)} bits", _avgEntropy > 50 ? Colors.greenAccent : Colors.orangeAccent),
           _cyberRow("BREACH_DICTIONARY", "ROCKYOU_LOCAL_V1", Colors.blueAccent),
-          _cyberRow("ANALYSIS_MODE", "HEURISTIC_ENTROPY", Colors.white24),
+          _cyberRow("ANALYSIS_THREAD", "ISOLATE_COMPUTE_MODE", Colors.purpleAccent),
         ],
       ),
     );
@@ -338,8 +386,7 @@ class DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildHealthOverview() {
     int healthyNodes = (_totalAccounts - _excludedCount) - _auditReports.where((r) => r.risk == RiskLevel.critical).length;
-    return Row(
-      children: [
+    return Row(children: [
         _statusIndicator("SECURE", healthyNodes.toString(), Colors.greenAccent),
         const SizedBox(width: 8),
         _statusIndicator("RISKS", _auditReports.length.toString(), Colors.orangeAccent),
@@ -354,8 +401,7 @@ class DashboardScreenState extends State<DashboardScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(color: col.withOpacity(0.05), border: Border.all(color: col.withOpacity(0.1))),
-        child: Column(
-          children: [
+        child: Column(children: [
             Text(val, style: TextStyle(color: col, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
             Text(label, style: const TextStyle(color: Colors.white24, fontSize: 7, letterSpacing: 1)),
           ],
@@ -365,9 +411,7 @@ class DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildFilterChips() {
-    return Wrap(
-      spacing: 8,
-      children: [
+    return Wrap(spacing: 8, children: [
         _filterChip("ALL", null, const Color(0xFF00FBFF)),
         _filterChip("CRITICAL", RiskLevel.critical, Colors.redAccent),
         _filterChip("WARNING", RiskLevel.warning, Colors.orangeAccent),
@@ -388,50 +432,16 @@ class DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildAdvancedGauge() {
-    Color statusColor = _healthScore > 80 ? const Color(0xFF00FF41) : (_healthScore > 50 ? Colors.orangeAccent : Colors.redAccent);
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: const Color(0xFF0D0D12), border: Border.all(color: statusColor.withOpacity(0.1))),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("${_healthScore.toInt()}%", style: TextStyle(color: statusColor, fontSize: 44, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-                  Text("OVERALL_INTEGRITY", style: TextStyle(color: statusColor.withOpacity(0.5), fontSize: 8)),
-                ],
-              ),
-              const Icon(Icons.shield_outlined, color: Colors.white10, size: 40),
-            ],
-          ),
-          const SizedBox(height: 15),
-          LinearProgressIndicator(value: _healthScore / 100, backgroundColor: Colors.white10, color: statusColor, minHeight: 2),
-        ],
-      ),
-    );
-  }
-
   Widget _buildDetailedReportCard(AuditResult report) {
-    Color riskColor = report.risk == RiskLevel.critical 
-        ? Colors.redAccent 
-        : (report.risk == RiskLevel.warning ? Colors.orangeAccent : Colors.blueAccent);
-        
+    Color riskColor = report.risk == RiskLevel.critical ? Colors.redAccent : (report.risk == RiskLevel.warning ? Colors.orangeAccent : Colors.blueAccent);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111118), 
-        border: Border(left: BorderSide(color: riskColor, width: 2))
-      ),
+      decoration: BoxDecoration(color: const Color(0xFF111118), border: Border(left: BorderSide(color: riskColor, width: 2))),
       child: ExpansionTile(
         iconColor: riskColor,
         collapsedIconColor: Colors.white24,
         title: Text(report.platform.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-        subtitle: Row(
-          children: [
+        subtitle: Row(children: [
             Icon(Icons.warning_amber_rounded, size: 10, color: riskColor),
             const SizedBox(width: 5),
             Text(report.reason, style: TextStyle(color: riskColor.withOpacity(0.8), fontSize: 8, fontFamily: 'monospace')),
@@ -452,27 +462,16 @@ class DashboardScreenState extends State<DashboardScreen> {
                 const SizedBox(height: 5),
                 Text(_getMitigation(report.reason), style: const TextStyle(color: Colors.white70, fontSize: 9, height: 1.4)),
                 const SizedBox(height: 15),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => _toggleExclusion(report.id, true),
-                      child: const Text("IGNORE_NODE", style: TextStyle(color: Colors.white24, fontSize: 9)),
-                    ),
+                Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                    TextButton(onPressed: () => _toggleExclusion(report.id, true), child: const Text("IGNORE_NODE", style: TextStyle(color: Colors.white24, fontSize: 9))),
                     const SizedBox(width: 10),
                     ElevatedButton.icon(
                       icon: const Icon(Icons.auto_fix_high, size: 12),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: riskColor.withOpacity(0.1),
-                        foregroundColor: riskColor,
-                        side: BorderSide(color: riskColor.withOpacity(0.3)),
-                      ),
+                      style: ElevatedButton.styleFrom(backgroundColor: riskColor.withOpacity(0.1), foregroundColor: riskColor, side: BorderSide(color: riskColor.withOpacity(0.3))),
                       onPressed: () async {
                         final db = await DBHelper.database;
                         final maps = await db.query('accounts', where: 'id = ?', whereArgs: [report.id]);
-                        if (maps.isNotEmpty) {
-                          widget.onRepairRequested(PasswordModel.fromMap(maps.first));
-                        }
+                        if (maps.isNotEmpty) widget.onRepairRequested(PasswordModel.fromMap(maps.first));
                       }, 
                       label: const Text("REPAIR_KEY", style: TextStyle(fontSize: 9)),
                     ),
@@ -486,16 +485,23 @@ class DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  String _getBruteForceEstimate(double entropy) {
+    if (entropy < 28) return "SECONDS (INSTANT)";
+    if (entropy < 45) return "MINUTES / HOURS";
+    if (entropy < 60) return "DAYS / MONTHS";
+    if (entropy < 75) return "YEARS / DECADES";
+    return "CENTURIES / UNBREAKABLE";
+  }
+
   String _getMitigation(String reason) {
     if (reason == "ROCKYOU_BREACH_MATCH") return "CRITICAL: This key exists in known leak databases. It will be cracked instantly. Generate a new one immediately.";
-    if (reason == "KEY_REUSE_DETECTED") return "SECURITY BREACH: You are using the same key for multiple platforms. A single leak will compromise all associated accounts.";
+    if (reason == "KEY_REUSE_DETECTED") return "SECURITY BREACH: You are using the same key for multiple platforms. A single leak will compromise all accounts.";
     if (reason == "KEYBOARD_PATTERN_DETECTED") return "VULNERABILITY: Predictable keyboard sequence detected. Brute-force tools prioritize these patterns.";
-    if (reason == "CRITICAL_LOW_ENTROPY") return "WEAKNESS: Mathematical complexity is too low. The key lacks the necessary character diversity.";
-    return "IMPROVEMENT: Key structure is basic. Consider adding special characters and increasing length beyond 12 symbols.";
+    return "IMPROVEMENT: Key structure is basic. Consider adding special characters and increasing length.";
   }
 
   Widget _buildLoadingScreen() => Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-    const SizedBox(width: 40, child: LinearProgressIndicator(color: Color(0xFF00FBFF), backgroundColor: Colors.white10)),
+    const SizedBox(width: 60, child: LinearProgressIndicator(color: Color(0xFF00FBFF), backgroundColor: Colors.white10)),
     const SizedBox(height: 20),
     Text(_loadingStatus, style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 9, fontFamily: 'monospace')),
   ]));
@@ -524,24 +530,94 @@ class DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildNoThreatsCard() => const Center(child: Padding(padding: EdgeInsets.all(40.0), child: Text("SYSTEM_SECURE: ALL_NODES_OPTIMIZED", style: TextStyle(color: Colors.white10, fontSize: 9, fontFamily: 'monospace'))));
 
-  Widget _buildExceptionInfoCard() => InkWell(onTap: _showExclusionsModal, child: Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.05), border: Border.all(color: Colors.blueAccent.withOpacity(0.1))), child: const Row(children: [
-    Icon(Icons.info_outline, color: Colors.blueAccent, size: 16),
-    SizedBox(width: 12),
-    Expanded(child: Text("Manual exceptions active. Score reflects partial coverage.", style: TextStyle(color: Colors.white38, fontSize: 9, fontFamily: 'monospace'))),
-    Icon(Icons.arrow_forward_ios, color: Color(0xFF00FBFF), size: 10),
-  ])));
+  Widget _buildExceptionInfoCard() {
+    return InkWell(
+      onTap: _showExclusionsModal,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: Colors.blueAccent.withOpacity(0.05),
+          border: Border.all(color: Colors.blueAccent.withOpacity(0.1)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.info_outline, color: Colors.blueAccent, size: 16),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "$_excludedCount NODES_IN_OMISSION",
+                    style: const TextStyle(color: Colors.blueAccent, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                  ),
+                  const Text(
+                    "Accounts excluded from risk analysis due to user or platform policy.",
+                    style: TextStyle(color: Colors.white38, fontSize: 8, fontFamily: 'monospace'),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, color: Color(0xFF00FBFF), size: 10),
+          ],
+        ),
+      ),
+    );
+  }
 
   void _showExclusionsModal() async {
     final db = await DBHelper.database;
     final List<Map<String, dynamic>> excluded = await db.query('accounts', where: 'is_excluded = 1');
+    
     if (!mounted) return;
-    showModalBottomSheet(context: context, backgroundColor: const Color(0xFF0D0D12), builder: (context) => Container(padding: const EdgeInsets.all(20), child: Column(children: [
-      _buildSectionTitle("EXCLUSION_VAULT", Icons.visibility_off),
-      const SizedBox(height: 15),
-      Expanded(child: ListView.builder(itemCount: excluded.length, itemBuilder: (context, i) => ListTile(
-        title: Text(excluded[i]['platform'].toString().toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace')),
-        trailing: IconButton(icon: const Icon(Icons.settings_backup_restore, color: Color(0xFF00FBFF)), onPressed: () { _toggleExclusion(excluded[i]['id'], false); Navigator.pop(context); }),
-      ))),
-    ])));
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D12),
+      shape: const RoundedRectangleBorder(side: BorderSide(color: Colors.white10)),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            _buildSectionTitle("EXCLUSION_MANAGER", Icons.settings_backup_restore),
+            const SizedBox(height: 15),
+            Expanded(
+              child: excluded.isEmpty 
+                ? const Center(child: Text("NO_EXCLUSIONS_FOUND", style: TextStyle(color: Colors.white10, fontSize: 9)))
+                : ListView.builder(
+                    itemCount: excluded.length,
+                    itemBuilder: (context, i) => Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.02),
+                        border: Border.all(color: Colors.white10)
+                      ),
+                      child: ListTile(
+                        dense: true,
+                        title: Text(
+                          excluded[i]['platform'].toString().toUpperCase(), 
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace')
+                        ),
+                        subtitle: Text(
+                          excluded[i]['username'] ?? "ID: ${excluded[i]['id']}", 
+                          style: const TextStyle(color: Colors.white38, fontSize: 9)
+                        ),
+                        trailing: TextButton.icon(
+                          onPressed: () {
+                            _toggleExclusion(excluded[i]['id'], false);
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.add_moderator, size: 14, color: Color(0xFF00FBFF)),
+                          label: const Text("RESTORE", style: TextStyle(color: Color(0xFF00FBFF), fontSize: 9)),
+                        ),
+                      ),
+                    ),
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
