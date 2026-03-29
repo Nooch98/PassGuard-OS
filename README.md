@@ -92,7 +92,7 @@ Keep your security under control with a real-time analysis of your vault:
 
 PassGuard OS comes with a standard `breach_db.txt`, but you can generate your own custom threat database using any wordlist (like the full RockYou or specialized leaks).
 
-We provide a Python script in the repository to convert plain-text passwords into the **SHA-1 Prefix** format used by our audit engine.
+I provide a Python script in the repository to convert plain-text passwords into the **SHA-1 Prefix** format used by our audit engine.
 
 #### **How to Generate Your Own Database**
 
