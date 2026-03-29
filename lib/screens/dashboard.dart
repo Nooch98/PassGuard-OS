@@ -3,6 +3,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'dart:typed_data';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:crypto/crypto.dart'; 
 import '../services/db_helper.dart';
 import '../services/encryption_service.dart';
@@ -16,6 +17,7 @@ class AuditResult {
   final String username;
   final String reason;
   final RiskLevel risk;
+  final double entropy;
 
   AuditResult({
     required this.id,
@@ -23,6 +25,7 @@ class AuditResult {
     required this.username,
     required this.reason,
     required this.risk,
+    this.entropy = 0.0,
   });
 }
 
@@ -46,6 +49,7 @@ class DashboardScreenState extends State<DashboardScreen> {
   int _totalAccounts = 0;
   int _excludedCount = 0;
   double _healthScore = 100.0;
+  double _avgEntropy = 0.0;
   List<AuditResult> _auditReports = [];
   Map<String, int> _categoryRisks = {};
 
@@ -73,6 +77,31 @@ class DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  double _calculateEntropy(String password) {
+    if (password.isEmpty) return 0;
+    double poolSize = 0;
+    if (password.contains(RegExp(r'[a-z]'))) poolSize += 26;
+    if (password.contains(RegExp(r'[A-Z]'))) poolSize += 26;
+    if (password.contains(RegExp(r'[0-9]'))) poolSize += 10;
+    if (password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'))) poolSize += 32;
+    if (poolSize == 0) poolSize = 1;
+    return password.length * (math.log(poolSize) / math.log(2));
+  }
+
+  String _getBruteForceEstimate(double entropy) {
+    if (entropy < 28) return "SECONDS (INSTANT)";
+    if (entropy < 45) return "MINUTES / HOURS";
+    if (entropy < 60) return "DAYS / MONTHS";
+    if (entropy < 75) return "YEARS / DECADES";
+    return "CENTURIES / UNBREAKABLE";
+  }
+
+  bool _hasKeyboardPattern(String password) {
+    const patterns = ['qwerty', 'asdfgh', 'zxcvbn', '123456', 'qazwsx', 'p0o9i8'];
+    String lower = password.toLowerCase();
+    return patterns.any((p) => lower.contains(p));
+  }
+
   Future<void> performSecurityAudit() async {
     if (!mounted) return;
     setState(() {
@@ -89,6 +118,8 @@ class DashboardScreenState extends State<DashboardScreen> {
       Map<String, List<Map<String, dynamic>>> passwordGroups = {};
       List<AuditResult> tempReports = [];
       Map<String, int> tempCategoryRisks = {};
+      double totalEntropy = 0;
+      int analyzedCount = 0;
       
       _totalAccounts = rows.length;
       _excludedCount = 0;
@@ -106,6 +137,10 @@ class DashboardScreenState extends State<DashboardScreen> {
 
         if (decrypted.isEmpty || decrypted.startsWith("ERROR:")) continue;
 
+        analyzedCount++;
+        double entropy = _calculateEntropy(decrypted);
+        totalEntropy += entropy;
+
         var bytes = utf8.encode(decrypted);
         var digest = sha1.convert(bytes).toString();
         var truncatedHash = digest.substring(0, 10);
@@ -117,21 +152,30 @@ class DashboardScreenState extends State<DashboardScreen> {
             username: row['username']?.toString() ?? "---",
             risk: RiskLevel.critical,
             reason: "ROCKYOU_BREACH_MATCH",
+            entropy: entropy,
           ));
           _incrementCategoryRisk(tempCategoryRisks, row['category']);
         }
 
-        bool hasUpper = decrypted.contains(RegExp(r'[A-Z]'));
-        bool hasDigits = decrypted.contains(RegExp(r'[0-9]'));
-        bool hasSpecial = decrypted.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'));
-        
-        if (decrypted.length < 12 || !hasUpper || !hasDigits || !hasSpecial) {
+        if (_hasKeyboardPattern(decrypted)) {
           tempReports.add(AuditResult(
             id: row['id'] as int,
             platform: row['platform']?.toString() ?? "UNKNOWN",
             username: row['username']?.toString() ?? "---",
-            risk: decrypted.length < 8 ? RiskLevel.critical : RiskLevel.warning,
-            reason: decrypted.length < 8 ? "CRITICAL_LENGTH" : "WEAK_STRUCTURE",
+            risk: RiskLevel.warning,
+            reason: "KEYBOARD_PATTERN_DETECTED",
+            entropy: entropy,
+          ));
+        }
+
+        if (entropy < 45) {
+          tempReports.add(AuditResult(
+            id: row['id'] as int,
+            platform: row['platform']?.toString() ?? "UNKNOWN",
+            username: row['username']?.toString() ?? "---",
+            risk: entropy < 30 ? RiskLevel.critical : RiskLevel.warning,
+            reason: entropy < 30 ? "CRITICAL_LOW_ENTROPY" : "WEAK_STRUCTURE",
+            entropy: entropy,
           ));
           _incrementCategoryRisk(tempCategoryRisks, row['category']);
         }
@@ -147,6 +191,7 @@ class DashboardScreenState extends State<DashboardScreen> {
               username: row['username']?.toString() ?? "---",
               risk: RiskLevel.info,
               reason: "STALE_KEY ($daysOld DAYS)",
+              entropy: entropy,
             ));
           }
         }
@@ -156,6 +201,7 @@ class DashboardScreenState extends State<DashboardScreen> {
 
       passwordGroups.forEach((pass, instances) {
         if (instances.length > 1) {
+          double groupEntropy = _calculateEntropy(pass);
           for (var inst in instances) {
             if ((inst['is_excluded'] as int? ?? 0) == 1) continue;
             tempReports.add(AuditResult(
@@ -164,6 +210,7 @@ class DashboardScreenState extends State<DashboardScreen> {
               username: inst['username'] ?? "---",
               risk: RiskLevel.critical,
               reason: "KEY_REUSE_DETECTED",
+              entropy: groupEntropy,
             ));
           }
         }
@@ -173,6 +220,7 @@ class DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _auditReports = tempReports;
           _categoryRisks = tempCategoryRisks;
+          _avgEntropy = analyzedCount > 0 ? totalEntropy / analyzedCount : 0;
           _healthScore = _calculateHealth();
           _isLoading = false;
         });
@@ -225,6 +273,8 @@ class DashboardScreenState extends State<DashboardScreen> {
             _buildSectionTitle("INTEGRITY_INDEX", Icons.analytics_outlined),
             const SizedBox(height: 15),
             _buildAdvancedGauge(),
+            const SizedBox(height: 15),
+            _buildCyberSummary(),
             const SizedBox(height: 20),
             
             _buildHealthOverview(),
@@ -252,6 +302,36 @@ class DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 100),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildCyberSummary() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.03),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        children: [
+          _cyberRow("AVG_ENTROPY_SYSTEM", "${_avgEntropy.toStringAsFixed(1)} bits", _avgEntropy > 50 ? Colors.greenAccent : Colors.orangeAccent),
+          _cyberRow("BREACH_DICTIONARY", "ROCKYOU_LOCAL_V1", Colors.blueAccent),
+          _cyberRow("ANALYSIS_MODE", "HEURISTIC_ENTROPY", Colors.white24),
+        ],
+      ),
+    );
+  }
+
+  Widget _cyberRow(String label, String val, Color col) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white12, fontSize: 8, fontFamily: 'monospace')),
+          Text(val, style: TextStyle(color: col, fontSize: 8, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }
@@ -342,31 +422,51 @@ class DashboardScreenState extends State<DashboardScreen> {
         
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(color: const Color(0xFF111118), border: Border(left: BorderSide(color: riskColor, width: 2))),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111118), 
+        border: Border(left: BorderSide(color: riskColor, width: 2))
+      ),
       child: ExpansionTile(
         iconColor: riskColor,
         collapsedIconColor: Colors.white24,
         title: Text(report.platform.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-        subtitle: Text(report.reason, style: TextStyle(color: riskColor.withOpacity(0.8), fontSize: 8, fontFamily: 'monospace')),
+        subtitle: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, size: 10, color: riskColor),
+            const SizedBox(width: 5),
+            Text(report.reason, style: TextStyle(color: riskColor.withOpacity(0.8), fontSize: 8, fontFamily: 'monospace')),
+          ],
+        ),
         children: [
           Container(
             padding: const EdgeInsets.all(15),
             color: Colors.black26,
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _detailRow("IDENTIFIER", report.username),
-                _detailRow("MITIGATION", _getMitigation(report.reason)),
-                const SizedBox(height: 10),
+                _detailRow("STRENGTH", "${report.entropy.toStringAsFixed(1)} bits (Entropy)"),
+                _detailRow("CRACK_EST", _getBruteForceEstimate(report.entropy)),
+                const Divider(color: Colors.white10, height: 20),
+                Text("SECURITY_ADVISORY:", style: TextStyle(color: riskColor, fontSize: 8, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 5),
+                Text(_getMitigation(report.reason), style: const TextStyle(color: Colors.white70, fontSize: 9, height: 1.4)),
+                const SizedBox(height: 15),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
                       onPressed: () => _toggleExclusion(report.id, true),
-                      child: const Text("IGNORE_NODE", style: TextStyle(color: Colors.blueAccent, fontSize: 9)),
+                      child: const Text("IGNORE_NODE", style: TextStyle(color: Colors.white24, fontSize: 9)),
                     ),
                     const SizedBox(width: 10),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: riskColor.withOpacity(0.1)),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.auto_fix_high, size: 12),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: riskColor.withOpacity(0.1),
+                        foregroundColor: riskColor,
+                        side: BorderSide(color: riskColor.withOpacity(0.3)),
+                      ),
                       onPressed: () async {
                         final db = await DBHelper.database;
                         final maps = await db.query('accounts', where: 'id = ?', whereArgs: [report.id]);
@@ -374,7 +474,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                           widget.onRepairRequested(PasswordModel.fromMap(maps.first));
                         }
                       }, 
-                      child: Text("FIX_NOW", style: TextStyle(fontSize: 9, color: riskColor)),
+                      label: const Text("REPAIR_KEY", style: TextStyle(fontSize: 9)),
                     ),
                   ],
                 )
@@ -387,10 +487,11 @@ class DashboardScreenState extends State<DashboardScreen> {
   }
 
   String _getMitigation(String reason) {
-    if (reason == "ROCKYOU_BREACH_MATCH") return "CRITICAL: Password found in public leaks. Change now.";
-    if (reason == "KEY_REUSE_DETECTED") return "Security collision. Use a unique generator.";
-    if (reason == "CRITICAL_LENGTH") return "Entropy too low. Minimum 12 characters required.";
-    return "Structure weak. Add symbols and numbers.";
+    if (reason == "ROCKYOU_BREACH_MATCH") return "CRITICAL: This key exists in known leak databases. It will be cracked instantly. Generate a new one immediately.";
+    if (reason == "KEY_REUSE_DETECTED") return "SECURITY BREACH: You are using the same key for multiple platforms. A single leak will compromise all associated accounts.";
+    if (reason == "KEYBOARD_PATTERN_DETECTED") return "VULNERABILITY: Predictable keyboard sequence detected. Brute-force tools prioritize these patterns.";
+    if (reason == "CRITICAL_LOW_ENTROPY") return "WEAKNESS: Mathematical complexity is too low. The key lacks the necessary character diversity.";
+    return "IMPROVEMENT: Key structure is basic. Consider adding special characters and increasing length beyond 12 symbols.";
   }
 
   Widget _buildLoadingScreen() => Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
