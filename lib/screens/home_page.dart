@@ -34,6 +34,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:screen_protector/screen_protector.dart';
+import 'package:image/image.dart' as img;
 
 import '../services/auth_service.dart';
 import '../services/compression_service.dart';
@@ -390,6 +391,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildCapacityIndicator(StegoCheckResult result) {
+    Color color = Colors.green;
+    String advice = "SAFE: Low visual impact.";
+    
+    if (result.usagePercentage > 50) {
+      color = Colors.orange;
+      advice = "WARNING: Medium visual noise.";
+    }
+    if (result.usagePercentage > 85) {
+      color = Colors.red;
+      advice = "CRITICAL: High risk of detection/artifacts.";
+    }
+
+    return Column(
+      children: [
+        LinearProgressIndicator(
+          value: result.usagePercentage / 100,
+          backgroundColor: Colors.white10,
+          color: color,
+        ),
+        const SizedBox(height: 8),
+        Text("${result.usagePercentage.toStringAsFixed(1)}% Capacity Used", 
+            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+        Text(advice, style: const TextStyle(color: Colors.white70, fontSize: 10)),
+      ],
+    );
+  }
+
   Future<void> _toggleFavorite(PasswordModel password) async {
     final db = await DBHelper.database;
     await db.update(
@@ -402,152 +431,55 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     HapticFeedback.lightImpact();
   }
 
-  Widget _metricChip({
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _riskCard({
-    required String title,
-    required int value,
-    required Color color,
-    required String hint,
-    String? actionLabel,
-    VoidCallback? onAction,
-  }) {
-    final isOk = value == 0;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(isOk ? 0.4 : 0.9)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 6),
-                Text(
-                  '$value',
-                  style: TextStyle(color: color, fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
-                ),
-                const SizedBox(height: 4),
-                Text(hint, style: const TextStyle(color: Colors.white54, fontSize: 10)),
-              ],
-            ),
-          ),
-          if (onAction != null && actionLabel != null) ...[
-            const SizedBox(width: 10),
-            OutlinedButton(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: color,
-                side: BorderSide(color: color),
-              ),
-              onPressed: onAction,
-              child: Text(actionLabel, style: const TextStyle(fontSize: 11)),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  void _showAuditListDialog({
-    required String title,
-    required Color color,
-    required List<String> items,
-  }) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF0A0A0E),
-        shape: RoundedRectangleBorder(
-          side: BorderSide(color: color, width: 2),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        title: Text('> $title', style: TextStyle(color: color, fontFamily: 'monospace')),
-        content: SizedBox(
-          width: 420,
-          child: items.isEmpty
-              ? const Text('NO_ITEMS', style: TextStyle(color: Colors.white54))
-              : ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: items.length,
-                  itemBuilder: (_, i) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Text('• ${items[i]}', style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                  ),
-                ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('CLOSE', style: TextStyle(color: color)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _openPasswordGenerator() {
-    showDialog(
-      context: context,
-      builder: (_) => const PasswordGeneratorDialog(),
-    );
-  }
-
-  Color _getHealthColor(double score) {
-    if (score >= 80) return const Color(0xFF00FF00);
-    if (score >= 60) return const Color(0xFF00FBFF);
-    if (score >= 40) return const Color(0xFFFFFF00);
-    return Colors.red;
-  }
-
   Future<void> _handleImageInjection() async {
     final security = SecurityController();
+    final stegoService = SteganographyService(repeatFactor: 1);
 
     try {
       security.pauseLocking();
-
       final picker = ImagePicker();
       final XFile? pickedFile = await picker.pickImage(source: ImageSource.gallery);
       security.resumeLocking();
+      
       if (pickedFile == null) return;
 
       String encryptedData = await _prepareEncryptedDataStream();
-
       Uint8List imageBytes = await pickedFile.readAsBytes();
+      final imageInfo = img.decodeImage(imageBytes);
+      
+      if (imageInfo == null) throw "INVALID_IMAGE_FORMAT";
 
-      final stegoService = SteganographyService();
-      Uint8List ghostImage = await stegoService.hideVaultInImage(imageBytes, encryptedData);
+      final check = stegoService.checkCapacity(imageInfo.width, imageInfo.height, encryptedData);
 
       if (!mounted) return;
+      bool confirm = await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF0A0A0E),
+          title: const Text("> INJECTION_PREVIEW", style: TextStyle(color: Color(0xFF00FBFF), fontSize: 14)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("Analyzing carrier image capacity...", style: TextStyle(color: Colors.white70, fontSize: 12)),
+              const SizedBox(height: 20),
+              _buildCapacityIndicator(check),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("ABORT")),
+            if (check.fits)
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00FBFF)),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text("INJECT", style: TextStyle(color: Colors.black)),
+              ),
+          ],
+        ),
+      ) ?? false;
 
+      if (!confirm) return;
+
+      Uint8List ghostImage = await stegoService.hideVaultInImage(imageBytes, encryptedData);
       await _saveImageToGallery(ghostImage);
 
       _showSuccessSnackBar("GHOST_IMAGE_CREATED: INJECTION_SUCCESSFUL");
@@ -683,6 +615,200 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await file.writeAsBytes(imageBytes);
       await Share.shareXFiles([XFile(file.path)], text: 'PassGuard OS: Cold Backup');
     }
+  }
+
+  Future<void> _saveAsFile(String encryptedContent) async {
+    try {
+      String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+      String fileName = "PG_BACKUP_$timestamp.pgvault";
+      
+      String? outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: 'SELECT_EXPORT_LOCATION',
+        fileName: fileName,
+        type: FileType.any,
+      );
+
+      if (outputFile == null) return;
+
+      final file = File(outputFile);
+      await file.writeAsString(encryptedContent);
+
+      _showSuccessSnackBar("VAULT_EXPORTED_SUCCESSFULLY");
+    } catch (e) {
+      _showErrorSnackBar("FILE_SYSTEM_ERROR: ${e.toString()}");
+    }
+  }
+
+  Future<void> _initiateImportFlow() async {
+    final security = SecurityController();
+
+    try {
+      security.pauseLocking();
+
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        dialogTitle: "SELECT_ENCRYPTED_BUNDLE",
+      );
+
+      security.resumeLocking();
+
+      if (result != null && result.files.single.path != null) {
+        String encryptedData = await File(result.files.single.path!).readAsString();
+        if (!mounted) return;
+        _showPasswordEntryDialog(isExport: false, dataToImport: encryptedData);
+      }
+    } catch (e) {
+      security.resumeLocking();
+      if (mounted) {
+        _showErrorSnackBar("FILE_PICK_ERROR: SYSTEM_ABORTED_OR_NOT_FOUND");
+      }
+    }
+  }
+
+  Future<void> _handleImportResult(SyncImportResult result) async {
+    if (!result.success) return;
+
+    final localKey = widget.masterKey;
+    int importedCount = 0;
+
+    for (var p in result.passwords) {
+      String finalPassword;
+      String? finalOtp;
+      
+      if (p.password.startsWith("v5.")) {
+        finalPassword = p.password;
+        finalOtp = p.otpSeed;
+      } else {
+        finalPassword = EncryptionService.encrypt(p.password, localKey);
+        finalOtp = (p.otpSeed != null && p.otpSeed!.isNotEmpty)
+            ? EncryptionService.encrypt(p.otpSeed!, localKey)
+            : p.otpSeed;
+      }
+
+      final readyToSave = p.copyWith(
+        password: finalPassword,
+        otpSeed: finalOtp,
+      );
+
+      bool exists = await DBHelper.checkIfPasswordExists(readyToSave.platform, readyToSave.username);
+      if (!exists) {
+        await DBHelper.insertPassword(readyToSave);
+        importedCount++;
+      }
+    }
+    
+    _loadPasswords();
+    _showSuccessSnackBar("IMPORT_SYNC_COMPLETE: $importedCount new entries");
+  }
+
+  void _showProcessingDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF0A0A0E),
+        content: Row(
+          children: [
+            const CircularProgressIndicator(color: Color(0xFF00FBFF)),
+            const SizedBox(width: 20),
+            Text(message, style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 12, fontFamily: 'Courier')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSecureBundleManager() {
+    final TextEditingController _passController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF0A0A0E),
+        shape: const Border(left: BorderSide(color: Color(0xFF00FBFF), width: 4)),
+        title: const Text("> BUNDLE_TRANSCEIVER_v5", 
+          style: TextStyle(color: Color(0xFF00FBFF), fontFamily: 'Courier', fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Select operation mode for encrypted JSON bundles (Argon2id + AES-GCM).",
+              style: TextStyle(color: Colors.white70, fontSize: 11),
+            ),
+            const SizedBox(height: 20),
+
+            ListTile(
+              tileColor: Colors.white.withOpacity(0.05),
+              leading: const Icon(Icons.upload_file, color: Color(0xFF00FBFF)),
+              title: const Text("EXPORT_BUNDLE", style: TextStyle(color: Colors.white, fontSize: 14)),
+              subtitle: const Text("Encrypt and save vault locally", style: TextStyle(fontSize: 10, color: Colors.grey)),
+              onTap: () {
+                Navigator.pop(context);
+                _showPasswordEntryDialog(isExport: true);
+              },
+            ),
+            
+            const SizedBox(height: 10),
+
+            ListTile(
+              tileColor: Colors.white.withOpacity(0.05),
+              leading: const Icon(Icons.download_for_offline, color: Color(0xFFFF00FF)),
+              title: const Text("IMPORT_BUNDLE", style: TextStyle(color: Colors.white, fontSize: 14)),
+              subtitle: const Text("Restore vault from .pgvault file", style: TextStyle(fontSize: 10, color: Colors.grey)),
+              onTap: () {
+                Navigator.pop(context);
+                _initiateImportFlow();
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("CLOSE", style: TextStyle(color: Colors.grey)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPasswordEntryDialog({required bool isExport, String? dataToImport}) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF0A0A0E),
+        title: Text(isExport ? "> GENERATE_VAULT_BUNDLE" : "> READ_VAULT_BUNDLE", 
+          style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 14, fontFamily: 'monospace')),
+        content: Text(
+          isExport 
+            ? "The export will preserve all encryption integrity (including TOTP seeds)."
+            : "The import will merge the external bundle into your current vault.",
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00FBFF)),
+            onPressed: () async {
+              Navigator.pop(context);
+
+              if (isExport) {
+                String bundle = await SyncService.exportSecurePackage(_passwords, widget.masterKey);
+                await _saveAsFile(bundle);
+              } else {
+                final result = await SyncService.importSecurePackage(dataToImport!, widget.masterKey);
+                if (result.success) {
+                  _handleImportResult(result); 
+                } else {
+                  _showErrorSnackBar("IMPORT_FAILED: KEY_MISMATCH_OR_CORRUPT");
+                }
+              }
+            },
+            child: Text(isExport ? "EXPORT" : "IMPORT", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showSystemMenu() {
@@ -824,6 +950,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   subtitle: const Text("Steganographic image injection",
                       style: TextStyle(fontSize: 10, color: Colors.grey)),
                   onTap: () { Navigator.pop(context); _showColdStorageDialog(); },
+                ),
+
+                ListTile(
+                  leading: const Icon(Icons.inventory_2, color: Color(0xFF00FBFF)),
+                  title: const Text("ENCRYPTED_JSON_BUNDLE"),
+                  subtitle: const Text("Export a v5 Argon2id encrypted backup package",
+                      style: TextStyle(fontSize: 10, color: Colors.grey)),
+                  onTap: () { 
+                    Navigator.pop(context); 
+                    _showSecureBundleManager();
+                  },
                 ),
 
                 // EXPORT DATA
@@ -1114,12 +1251,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
       }
 
-      final String rawData = await SyncService.exportToPackage(_passwords);
-
-      final String encryptedData = EncryptionService.encrypt(
-          rawData,
-          widget.masterKey
-      );
+      final String encryptedData = await SyncService.exportSecurePackage(
+        _passwords, 
+        widget.masterKey
+    );
       
       final String compressedData = CompressionService.compressForQR(encryptedData);
 
@@ -2572,14 +2707,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           },
         );
           
-      case 2: // DASHBOARD
+      case 2:
         return FloatingActionButton(
           heroTag: "fab_dash",
           backgroundColor: const Color(0xFF00FBFF),
           child: const Icon(Icons.refresh_sharp, color: Colors.black),
           onPressed: () {
             _onUserInteraction();
-            // Llamamos directamente a la función de auditoría del Dashboard
             _dashboardKey.currentState?.performSecurityAudit(); 
           },
         );
