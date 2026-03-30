@@ -2,6 +2,10 @@
 
 ![badge](https://img.shields.io/badge/PassGuardOS%20-v1.0-00FBFF?style=for-the-badge&logo=security&logoColor=white)
 
+<div align="center">
+<img width="1260" alt="PassGuard OS Login" src="https://github.com/user-attachments/assets/657a5861-b7f1-4739-a0c9-3389fda68ba4" />
+</div>
+
 **A password manager with advanced encryption, steganography, and panic protocols**
 
 ![badge](https://img.shields.io/badge/Flutter-3.38+-02569B?style=flat&logo=flutter)
