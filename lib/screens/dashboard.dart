@@ -93,24 +93,27 @@ class DashboardScreenState extends State<DashboardScreen> {
       final data = await rootBundle.loadString('assets/breach_db.txt');
       _breachHashSet = Set.from(data.split('\n').where((s) => s.isNotEmpty));
     } catch (e) {
-      debugPrint("Breach DB not found, skipping local check: $e");
+      //
     }
   }
   
   Future<void> performSecurityAudit() async {
     if (!mounted) return;
+
     setState(() {
       _isLoading = true;
       _loadingStatus = "SYNCING_VAULT_INTEGRITY...";
+      _healthScore = 0.0;
     });
 
     try {
       final db = await DBHelper.database;
-      await db.execute("UPDATE accounts SET audit_cache = NULL WHERE is_excluded = 0 AND audit_cache LIKE '%\"excluded\":true%'");
+      await db.execute(
+          "UPDATE accounts SET audit_cache = NULL WHERE is_excluded = 0 AND audit_cache LIKE '%\"excluded\":true%'");
 
       final rows = await DBHelper.getRawAccounts();
       _totalAccounts = rows.length;
-      
+
       final auditData = {
         'rows': rows,
         'masterKey': widget.masterKey,
@@ -127,15 +130,34 @@ class DashboardScreenState extends State<DashboardScreen> {
           _medCount = results['med'];
           _strongCount = results['strong'];
           _excludedCount = results['excluded'];
-          _healthScore = _calculateHealth();
-          _isLoading = false;
+          _loadingStatus = "CALIBRATING_HEALTH_INDEX...";
         });
 
-        await _persistAuditResults(results['reports']);
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _healthScore = _calculateHealth();
+              });
+            }
+          });
+
+          _persistAuditResults(results['reports']);
+        }
       }
     } catch (e) {
-      debugPrint("AUDIT_ERROR: $e");
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _loadingStatus = "SYSTEM_ERROR_ID_0x04";
+        });
+      }
     }
   }
 
@@ -152,7 +174,6 @@ class DashboardScreenState extends State<DashboardScreen> {
       );
     }
     await batch.commit(noResult: true);
-    debugPrint("AUDIT_CACHE_UPDATED: ${reports.length} nodes");
   }
 
   String _getBruteForceEstimate(double entropy) {
@@ -214,50 +235,47 @@ class DashboardScreenState extends State<DashboardScreen> {
       if (entropy < 40) weak++;
       else if (entropy < 65) med++;
       else strong++;
-
-      bool hasThreat = false;
+      AuditResult? bestReport;
 
       var digest = sha1.convert(utf8.encode(decrypted)).toString();
       if (breachSet.contains(digest.substring(0, 10))) {
-        hasThreat = true;
-        tempReports.add(AuditResult(
+        bestReport = AuditResult(
           id: row['id'], 
           platform: row['platform'], 
           username: row['username'] ?? "---", 
           risk: RiskLevel.critical, 
           reason: "ROCKYOU_BREACH_MATCH", 
           entropy: entropy
-        ));
+        );
       }
 
-      if (secondsToCrack < thirtyDaysInSeconds && !hasThreat) {
-        hasThreat = true;
-        tempReports.add(AuditResult(
+      if (bestReport == null && secondsToCrack < thirtyDaysInSeconds) {
+        bestReport = AuditResult(
           id: row['id'], 
           platform: row['platform'], 
           username: row['username'] ?? "---", 
           risk: secondsToCrack < 3600 ? RiskLevel.critical : RiskLevel.warning, 
           reason: secondsToCrack < 3600 ? "INSTANT_CRACK_VULNERABILITY" : "LOW_COMPUTATIONAL_COST", 
           entropy: entropy
-        ));
+        );
       }
 
-      if (_staticHasKeyboardPattern(decrypted) && !hasThreat) {
-        hasThreat = true;
-        tempReports.add(AuditResult(
+      if (bestReport == null && _staticHasKeyboardPattern(decrypted)) {
+        bestReport = AuditResult(
           id: row['id'], 
           platform: row['platform'], 
           username: row['username'] ?? "---", 
           risk: RiskLevel.warning, 
           reason: "KEYBOARD_PATTERN_DETECTED", 
           entropy: entropy
-        ));
+        );
       }
 
-      if (!hasThreat && entropy >= 60) {
+      if (bestReport != null) {
+        tempReports.add(bestReport);
+      } else if (entropy >= 60) {
         cleanNodes.add(row['id']);
       }
-
       passwordGroups.putIfAbsent(decrypted, () => []).add(row);
     }
 
@@ -265,15 +283,19 @@ class DashboardScreenState extends State<DashboardScreen> {
       if (instances.length > 1) {
         for (var inst in instances) {
           if ((inst['is_excluded'] as int? ?? 0) == 1) continue;
+
+          bool alreadyHasCritical = tempReports.any((r) => r.id == inst['id'] && r.risk == RiskLevel.critical);
           
-          tempReports.add(AuditResult(
-            id: inst['id'], 
-            platform: inst['platform'], 
-            username: inst['username'] ?? "---", 
-            risk: RiskLevel.critical, 
-            reason: "KEY_REUSE_DETECTED", 
-            entropy: _staticCalculateEntropy(pass)
-          ));
+          if (!alreadyHasCritical) {
+            tempReports.add(AuditResult(
+              id: inst['id'], 
+              platform: inst['platform'], 
+              username: inst['username'] ?? "---", 
+              risk: RiskLevel.critical, 
+              reason: "KEY_REUSE_DETECTED", 
+              entropy: _staticCalculateEntropy(pass)
+            ));
+          }
         }
       }
     });
@@ -308,14 +330,22 @@ class DashboardScreenState extends State<DashboardScreen> {
   double _calculateHealth() {
     int activeNodes = _totalAccounts - _excludedCount;
     if (activeNodes <= 0) return 100.0;
+
+    final impactedNodeIds = _auditReports.map((r) => r.id).toSet();
     
-    double penalty = 0;
-    for (var report in _auditReports) {
-      if (report.risk == RiskLevel.critical) penalty += 25.0;
-      else if (report.risk == RiskLevel.warning) penalty += 10.0;
+    if (impactedNodeIds.isEmpty) return 100.0;
+
+    double totalPenalty = 0;
+
+    for (var nodeId in impactedNodeIds) {
+      final accountReports = _auditReports.where((r) => r.id == nodeId);
+      final isCritical = accountReports.any((r) => r.risk == RiskLevel.critical);
+
+      totalPenalty += isCritical ? 20.0 : 8.0;
     }
 
-    double score = 100.0 - (penalty / math.sqrt(activeNodes + 1) * 2);
+    double score = 100.0 - (totalPenalty / activeNodes * 5); 
+    
     return score.clamp(0.0, 100.0);
   }
 
