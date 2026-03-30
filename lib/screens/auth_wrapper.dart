@@ -25,6 +25,7 @@ import 'dart:io';
 import 'package:local_auth/local_auth.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:passguard/main.dart';
 
 import '../services/auth_service.dart';
 import '../services/db_helper.dart';
@@ -65,12 +66,16 @@ class _AuthWrapperState extends State<AuthWrapper>
     _security = SecurityController();
     _checkStatus();
     _checkBiometrics();
+    if (SessionService.instance.isSessionActive) {
+      _ensureSessionRunning();
+      _sessionManager.activity(); 
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _hardLock(reason: 'AUTH_WRAPPER_DISPOSE');
+    SessionService.instance.hardLock(); 
     _passController.dispose();
     _confirmController.dispose();
     super.dispose();
@@ -78,11 +83,15 @@ class _AuthWrapperState extends State<AuthWrapper>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive) {
-      if (_security.shouldLockOnLeave &&
-          SessionService.instance.isSessionActive) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      if (_security.shouldLockOnLeave && SessionService.instance.isSessionActive) {
         _lockUiOnly();
+      }
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      if (SessionService.instance.isSessionActive) {
+        _sessionManager.activity(); 
       }
     }
   }
@@ -130,14 +139,12 @@ class _AuthWrapperState extends State<AuthWrapper>
   void _ensureSessionRunning() {
     if (!_sessionManager.isInitialized) {
       _sessionManager.initialize(
+        timeout: const Duration(minutes: 5),
         onTimeout: () {
           _hardLock(reason: 'SESSION_TIMEOUT');
+          navigatorKey.currentState?.pushNamedAndRemoveUntil('/', (route) => false);
         },
-        timeout: const Duration(minutes: 5),
-        enabled: true,
       );
-    } else {
-      _sessionManager.activity();
     }
   }
 
@@ -150,7 +157,7 @@ class _AuthWrapperState extends State<AuthWrapper>
   void _hardLock({String reason = 'MANUAL_LOCK'}) {
     _clearUiBuffers();
     SessionService.instance.hardLock();
-    _sessionManager.dispose();
+    _sessionManager.stopAndReset(); 
     if (mounted) setState(() {});
   }
 
@@ -331,47 +338,27 @@ class _AuthWrapperState extends State<AuthWrapper>
   }
 
   Future<void> _executePanicProtocol() async {
-    bool? confirm = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF0A0A0E),
-        shape: RoundedRectangleBorder(
-          side: const BorderSide(color: Colors.red, width: 2),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        title: const Text(
-          '⚠️ PANIC_MODE_ACTIVATED',
-          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-        ),
-        content: const Text(
-          'This will PERMANENTLY DELETE all vault data.\n\nThis action CANNOT be undone.\n\nContinue?',
-          style: TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('CANCEL', style: TextStyle(color: Colors.white)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('WIPE_ALL_DATA',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
+    HapticFeedback.heavyImpact();
 
-    if (confirm == true) {
-      HapticFeedback.heavyImpact();
+    try {
+
       final db = await DBHelper.database;
-      await db.delete('accounts');
-      await db.delete('recovery_codes');
-      await db.delete('file_vault');
-      await db.delete('settings');
-      await db.delete('identities');
+      final garbage = {
+        'password': 'ERASED_${DateTime.now().millisecondsSinceEpoch}', 
+        'notes': 'NULL',
+        'updated_at': DateTime.now().toIso8601String()
+      };
+
+      await db.update('accounts', garbage, where: '1');
+      await db.update('identities', {'full_name': 'DELETED', 'card_number': '0000'}, where: '1');
+
+      final tables = ['accounts', 'recovery_codes', 'file_vault', 'settings', 'identities'];
+      for (var table in tables) {
+        await db.delete(table);
+      }
+
       await db.execute('VACUUM');
+
       await AuthService.clearAllData();
       await DBHelper.close();
 
@@ -381,12 +368,19 @@ class _AuthWrapperState extends State<AuthWrapper>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content:
-                Text("SYSTEM_ERROR: 0x0004128F - DATA_CORRUPTION_DETECTED"),
+            content: Text("SYSTEM_ERROR: 0x0004128F - DATA_CORRUPTION_DETECTED"),
             backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
           ),
         );
+
+        Future.delayed(const Duration(seconds: 3), () {
+          SystemChannels.platform.invokeMethod('SystemNavigator.pop');
+        });
       }
+    } catch (e) {
+      SystemChannels.platform.invokeMethod('SystemNavigator.pop');
     }
   }
 
@@ -453,14 +447,44 @@ class _AuthWrapperState extends State<AuthWrapper>
                   textAlign: TextAlign.center,
                 ),
                 
-                if (sessionActive && !isFirstTime!)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Background session still active until timeout',
-                      style: TextStyle(fontSize: 10, color: Colors.white54),
-                    ),
-                  ),
+                if (!isFirstTime! && sessionActive)
+                ValueListenableBuilder<Duration?>(
+                  valueListenable: _sessionManager.remainingTimeNotifier,
+                  builder: (context, remaining, _) {
+                    
+                    if (remaining == null) {
+                      return const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text('> SESSION_RESUMING...', 
+                          style: TextStyle(fontSize: 10, color: Colors.white24, fontFamily: 'Courier New')),
+                      );
+                    }
+
+                    final minutes = remaining.inMinutes;
+                    final seconds = (remaining.inSeconds % 60).toString().padLeft(2, '0');
+
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'VAULT_EXPIRES_IN: $minutes:$seconds',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontFamily: 'Courier New',
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF00FF41),
+                          shadows: [
+                            Shadow(
+                              blurRadius: 5.0,
+                              color: const Color(0xFF00FF41).withOpacity(0.5),
+                              offset: const Offset(0, 0),
+                            ),
+                          ],
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 if (isFirstTime! && _passController.text.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(top: 10),
