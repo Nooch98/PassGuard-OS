@@ -51,10 +51,15 @@ class SessionManager {
     _onTimeout = onTimeout;
     if (timeout != null) _timeoutDuration = timeout;
     _isEnabled = enabled;
-    _initialized = true;
-    _lastActivity = DateTime.now();
-    _startTicker();
-    _emitRemaining();
+    
+    if (!_initialized) {
+      _initialized = true;
+      _lastActivity = DateTime.now();
+      _startTicker();
+      remainingTimeNotifier.value = remainingTime;
+    } else {
+      activity(); 
+    }
   }
 
   bool get isInitialized => _initialized;
@@ -89,15 +94,16 @@ class SessionManager {
   }
 
   void lockNow({String reason = 'MANUAL_LOCK'}) {
-    debugPrint('SESSION_LOCK: $reason');
     _onTimeout?.call();
   }
 
   Duration? get remainingTime {
-    if (!_isEnabled || !_initialized || _lastActivity == null) return null;
+    if (!_initialized) return null;
+    if (_lastActivity == null) return _timeoutDuration;
 
     final elapsed = DateTime.now().difference(_lastActivity!);
     final remaining = _timeoutDuration - elapsed;
+    
     return remaining.isNegative ? Duration.zero : remaining;
   }
 
@@ -112,13 +118,20 @@ class SessionManager {
     });
   }
 
+  void stopAndReset() {
+    _stopTicker();
+    _lastActivity = null;
+    remainingTimeNotifier.value = null;
+  }
+
   void _stopTicker() {
     _ticker?.cancel();
     _ticker = null;
   }
 
   void _emitRemaining() {
-    remainingTimeNotifier.value = remainingTime;
+    final r = remainingTime;
+    remainingTimeNotifier.value = r;
   }
 
   void _checkTimeout() {
@@ -126,7 +139,6 @@ class SessionManager {
     if (r == null) return;
 
     if (r == Duration.zero) {
-      debugPrint('SESSION_TIMEOUT: HARD_LOCK');
       _stopTicker();
       _onTimeout?.call();
     }
@@ -137,6 +149,8 @@ class SessionManager {
     _onTimeout = null;
     _lastActivity = null;
     _initialized = false;
-    remainingTimeNotifier.value = null;
+    Future.microtask(() {
+      remainingTimeNotifier.value = null;
+    });
   }
 }
