@@ -89,10 +89,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     _migrateRecoveryCodesToEncrypted();
 
-    SessionManager().initialize(
-      onTimeout: _handleSessionTimeout,
-      timeout: Duration(minutes: 5),
-    );
+    SessionManager().activity();
     
     _totpTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       setState(() => _totpNowMs = DateTime.now().millisecondsSinceEpoch);
@@ -108,7 +105,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _totpTimer?.cancel();
     _searchController.dispose();
     _clipboardTimer?.cancel();
-    SessionManager().dispose();
     super.dispose();
   }
 
@@ -138,7 +134,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final rawCode = code['code'];
         
         if (rawCode == null || rawCode is! String) {
-          debugPrint('MIGRATION: Invalid code found - ID: ${code['id']}');
           errors++;
           continue;
         }
@@ -201,7 +196,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await ScreenProtector.preventScreenshotOff();
         }
       } catch (e) {
-        debugPrint('SCREEN_PROTECTOR_ERROR: $e');
+        //
       }
     }
   }
@@ -1065,7 +1060,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         updates['notes'] = EncryptionService.encrypt(decrypted, widget.masterKey);
                         needsUpdate = true;
                       } catch (e) {
-                        debugPrint("Error migrating notes column in account ID ${row['id']}: $e");
+                        //
                       }
                     }
 
@@ -1093,7 +1088,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         updates[field] = EncryptionService.encrypt(decrypted, widget.masterKey);
                         needsUpdate = true;
                       } catch (e) {
-                        debugPrint("Error en campo $field ID ${row['id']}: $e");
+                        //
                       }
                     }
                   }
@@ -1115,7 +1110,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 setState(() {});
 
               } catch (e) {
-                debugPrint("MIGRATION_ERROR: $e");
+                //
                 if (mounted) {
                   Navigator.of(context).pop();
                   _showErrorSnackBar("SYNC_FAILED: CORE_ENGINE_ERROR");
@@ -2057,7 +2052,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     } catch (e) {
       security.resumeLocking();
-      debugPrint("VAULT_ERROR: $e");
       if (mounted) {
         _showErrorSnackBar("VAULT_ERROR: $e");
       }
@@ -2156,9 +2150,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   whereArgs: [code['id']],
                                 );
                                 encrypted++;
-                                debugPrint('✓ Encrypted code ID: ${code['id']}');
                               } catch (e) {
-                                debugPrint('✗ Failed to encrypt code ID: ${code['id']}: $e');
+                                //
                               }
                             } else {
                               alreadyEncrypted++;
@@ -2509,7 +2502,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         }
                       } catch (e) {
                         security.resumeLocking();
-                        debugPrint('RECOVERY_CODE_IMPORT_ERROR: $e');
                         if (context.mounted) {
                           _showErrorSnackBar("> SYSTEM_ERROR: $e");
                         }
@@ -2624,6 +2616,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             children: [
               const Text("VAULT_INTERFACE",
                   style: TextStyle(color: Color(0xFF00FBFF), fontSize: 13, letterSpacing: 1, fontFamily: 'monospace')),
+
+              ValueListenableBuilder<Duration?>(
+                valueListenable: SessionManager().remainingTimeNotifier,
+                builder: (context, remaining, _) {
+                  if (remaining == null) return const SizedBox.shrink();
+
+                  final minutes = remaining.inMinutes;
+                  final seconds = (remaining.inSeconds % 60).toString().padLeft(2, '0');
+
+                  final isUrgent = remaining.inSeconds < 60;
+                  final timerColor = isUrgent ? const Color(0xFFFF3131) : const Color(0xFF00FF41);
+
+                  return Text(
+                    "SESSION_TTL: $minutes:$seconds",
+                    style: TextStyle(
+                      color: timerColor,
+                      fontSize: 9,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.bold,
+                      shadows: [
+                        Shadow(
+                          blurRadius: 4,
+                          color: timerColor.withOpacity(0.4),
+                        )
+                      ],
+                    ),
+                  );
+                },
+              ),
               const SizedBox(height: 6),
             ],
           ),
@@ -3128,7 +3149,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             where: 'id = ?',
                             whereArgs: [item.id],
                           );
-                          debugPrint("SILENT_UPGRADE: Password for ${item.platform} migrated to V4");
                         }();
                       },
                     );
@@ -3151,7 +3171,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           where: 'id = ?',
                           whereArgs: [item.id],
                         );
-                        debugPrint("PASSWORD_FP_UPGRADE: ${item.platform} updated");
                       }();
                     }
 
@@ -3172,7 +3191,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               where: 'id = ?',
                               whereArgs: [item.id],
                             );
-                            debugPrint("SILENT_UPGRADE: Notes for ${item.platform} migrated to V4");
                           }();
                         },
                       );
