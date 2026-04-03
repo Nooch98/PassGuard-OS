@@ -219,31 +219,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _loadPasswords({String? query}) async {
     final db = await DBHelper.database;
+    bool travelModeActive = await AuthService.getTravelModeEnabled();
 
     String? whereClause;
-    List<dynamic>? whereArgs;
+    List<dynamic> whereArgs = [];
+
+    if (travelModeActive) {
+      whereClause = 'is_travel_safe = 1';
+    }
 
     if (query != null && query.isNotEmpty) {
-      whereClause = 'platform LIKE ? OR username LIKE ?';
-      whereArgs = ['%$query%', '%$query%'];
+      String searchClause = '(platform LIKE ? OR username LIKE ?)';
+      whereClause = whereClause == null ? searchClause : '$whereClause AND $searchClause';
+      whereArgs.addAll(['%$query%', '%$query%']);
     }
 
     if (_filterCategory != null) {
-      if (whereClause != null) {
-        whereClause += ' AND category = ?';
-        whereArgs!.add(_filterCategory);
-      } else {
-        whereClause = 'category = ?';
-        whereArgs = [_filterCategory];
-      }
+      String catClause = 'category = ?';
+      whereClause = whereClause == null ? catClause : '$whereClause AND $catClause';
+      whereArgs.add(_filterCategory);
     }
 
-    if (_showFavoritesOnly) {
-      if (whereClause != null) {
-        whereClause += ' AND is_favorite = 1';
-      } else {
-        whereClause = 'is_favorite = 1';
-      }
+    if (travelModeActive) {
+      whereClause = 'is_travel_safe = 0';
     }
 
     String orderBy;
@@ -264,7 +262,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final List<Map<String, dynamic>> maps = await db.query(
       'accounts',
       where: whereClause,
-      whereArgs: whereArgs,
+      whereArgs: whereArgs.isEmpty ? null : whereArgs,
       orderBy: orderBy,
     );
 
@@ -938,6 +936,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
                 const Divider(color: Colors.white10),
 
+                FutureBuilder<bool>(
+                  future: AuthService.getTravelModeEnabled(), // Necesitas crear este getter en AuthService
+                  builder: (context, snapshot) {
+                    bool isActive = snapshot.data ?? false;
+                    return SwitchListTile(
+                      secondary: Icon(
+                        Icons.flight_takeoff, 
+                        color: isActive ? const Color(0xFF00FBFF) : const Color(0xFFFF00FF)
+                      ),
+                      title: const Text("TRAVEL_MODE_PROTOCOL"),
+                      subtitle: Text(
+                        isActive 
+                          ? 'ACTIVE: Sensitive nodes are currently hidden' 
+                          : 'Hide pre-selected sensitive accounts for safe travel',
+                        style: const TextStyle(fontSize: 10, color: Colors.grey)
+                      ),
+                      value: isActive,
+                      activeColor: const Color(0xFF00FBFF),
+                      onChanged: (val) async {
+                        if (val == false) {
+                          bool canProceed = await _showTravelDeactivationCheck();
+                          if (!canProceed) return;
+                        }
+
+                        await AuthService.setTravelModeEnabled(val);
+
+                        Navigator.pop(context); 
+
+                        setState(() {
+                          _loadPasswords(); 
+                        });
+
+                        _showSuccessSnackBar(val ? "TRAVEL_MODE: ENGAGED" : "TRAVEL_MODE: DISENGAGED");
+                      },
+                    );
+                  },
+                ),
+
                 // COLD STORAGE
                 ListTile(
                   leading: const Icon(Icons.ac_unit, color: Color(0xFF00FBFF)),
@@ -974,6 +1010,107 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  Future<bool> _showTravelDeactivationCheck() async {
+    bool confirmed = false;
+    final TextEditingController _passController = TextEditingController();
+    bool _isObscured = true;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setStateDialog) => AlertDialog(
+          backgroundColor: const Color(0xFF0A0A0E),
+          shape: const Border(left: BorderSide(color: Color(0xFFFF00FF), width: 4)),
+          title: const Text(
+            "⚠️ DEACTIVATE_TRAVEL_PROTOCOL",
+            style: TextStyle(
+              color: Color(0xFFFF00FF), 
+              fontSize: 16, 
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Identity verification required. Enter MASTER_PASSWORD to expose sensitive nodes:",
+                style: TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _passController,
+                obscureText: _isObscured,
+                autofocus: true,
+                style: const TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace'),
+                decoration: InputDecoration(
+                  hintText: "ENTER_MASTER_KEY",
+                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.2), fontSize: 12),
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.05),
+                  enabledBorder: const OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white10),
+                  ),
+                  focusedBorder: const OutlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF00FBFF)),
+                  ),
+                  suffixIcon: IconButton(
+                    icon: Icon(_isObscured ? Icons.visibility : Icons.visibility_off, color: Colors.white24, size: 18),
+                    onPressed: () => setStateDialog(() => _isObscured = !_isObscured),
+                  ),
+                ),
+                onSubmitted: (_) async {
+                  if (_passController.text.isNotEmpty) {
+                    await _attemptUnlock(context, _passController.text, (val) => confirmed = val);
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("ABORT", style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1A1A2E),
+                side: const BorderSide(color: Color(0xFF00FBFF)),
+              ),
+              onPressed: () async {
+                bool isValid = await AuthService.verifyPassword(_passController.text);
+
+                if (isValid) {
+                  confirmed = true;
+                  if (context.mounted) Navigator.pop(context);
+                } else {
+                  _passController.clear();
+                  _showErrorSnackBar("INVALID_MASTER_KEY: ACCESS_DENIED");
+                }
+              },
+              child: const Text("UNLOCK", style: TextStyle(color: Color(0xFF00FBFF))),
+            ),
+          ],
+        ),
+      ),
+    );
+    
+    _passController.dispose();
+    return confirmed;
+  }
+
+  Future<void> _attemptUnlock(BuildContext context, String input, Function(bool) setConfirmed) async {
+    bool isValid = await AuthService.verifyPassword(input);
+    if (isValid) {
+      setConfirmed(true);
+      if (context.mounted) Navigator.pop(context);
+    } else {
+      _showErrorSnackBar("INVALID_MASTER_KEY: ACCESS_DENIED");
+    }
   }
 
   void _showUniversalUpgradeConfirmation() {
@@ -2944,6 +3081,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
+                  if (item.isTravelSafe)
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF0A0A0E),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.flight_takeoff,
+                          color: Color(0xFF00FBFF),
+                          size: 10,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -3273,6 +3427,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   case 'edit':
                     _showForm(existingPassword: item);
                     break;
+
+                  case 'travel_safe':
+                    final db = await DBHelper.database;
+                    await db.update(
+                      'accounts',
+                      {'is_travel_safe': item.isTravelSafe ? 0 : 1},
+                      where: 'id = ?',
+                      whereArgs: [item.id],
+                    );
+                    _loadPasswords();
+                    _showSuccessSnackBar(item.isTravelSafe ? "NODE_REMOVED_FROM_SAFE_LIST" : "NODE_MARKED_AS_TRAVEL_SAFE");
+                    break;
                     
                   case 'delete':
                     bool? confirm = await showDialog<bool>(
@@ -3385,6 +3551,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ],
                   ),
                 ),
+                PopupMenuItem(
+                  value: 'travel_safe',
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.flight_takeoff, 
+                        color: item.isTravelSafe ? const Color(0xFF00FBFF) : Colors.white54, 
+                        size: 18
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        item.isTravelSafe ? 'REMOVE_SAFE_TRAVEL' : 'MARK_SAFE_TRAVEL', 
+                        style: const TextStyle(color: Colors.white, fontSize: 13)
+                      ),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
                 const PopupMenuItem(
                   value: 'delete',
                   child: Row(
