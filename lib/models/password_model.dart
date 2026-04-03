@@ -1,3 +1,78 @@
+/*
+|--------------------------------------------------------------------------
+| PassGuard OS - PasswordModel (Credential Record Structure)
+|--------------------------------------------------------------------------
+| Description:
+|   Immutable data model representing a stored credential entry inside
+|   the PassGuard OS vault.
+|
+| Core Fields:
+|   - platform: Service or website name (e.g., "github.com")
+|   - username: Login identifier
+|   - password: Encrypted credential (ciphertext, never plaintext at rest)
+|   - otpSeed: Encrypted TOTP seed (if 2FA enabled)
+|   - otpMeta: Optional metadata for OTP (issuer, digits, period, algorithm)
+|
+| Additional Metadata:
+|   - category: Logical grouping (PERSONAL, WORK, etc.)
+|   - notes: Optional user notes (should be encrypted before storage)
+|   - isFavorite: Quick-access flag
+|   - passwordHistory: Previous encrypted passwords (rotation tracking)
+|   - passwordFingerprint: HMAC-based fingerprint used for reuse detection
+|   - createdAt / updatedAt / lastUsed timestamps
+|
+| Security Architecture:
+|   - password is expected to be encrypted before persistence.
+|   - passwordFingerprint enables reuse detection without exposing plaintext.
+|   - otpSeed must be encrypted before storage.
+|   - otpMeta contains non-secret OTP configuration data (no shared secret).
+|
+| Database Mapping:
+|   - toMap() serializes model for SQLite storage.
+|   - fromMap() reconstructs model from DB row.
+|   - Boolean values stored as 1/0 integers.
+|   - passwordHistory serialized using custom delimiter "|||".
+|   - Dates stored in ISO8601 format.
+|
+| Favicon Helper:
+|   - faviconUrl dynamically generates a Google S2 favicon endpoint.
+|   - _detectDomain() maps common service names to proper domains.
+|   - Used purely for UI enhancement (no security impact).
+|
+| Data Classification:
+|   HIGH SENSITIVITY:
+|     - password
+|     - otpSeed
+|     - passwordHistory
+|
+|   MEDIUM SENSITIVITY:
+|     - username
+|     - notes
+|
+|   LOW SENSITIVITY:
+|     - platform
+|     - category
+|     - isFavorite
+|
+| Threat model assumptions:
+|   - Vault database is encrypted or OS-sandbox protected.
+|   - EncryptionService handles strong authenticated encryption (AES-GCM v4).
+|   - Fingerprints use keyed HMAC (pepper derived from master key).
+|
+| What this model does NOT protect against:
+|   - UI layer exposing decrypted passwords
+|   - Keyloggers during password entry
+|   - Memory scraping while vault is unlocked
+|   - Weak master passwords
+|
+| Design Principles:
+|   - Immutable structure
+|   - copyWith() for safe updates
+|   - Separation of storage, crypto, and UI concerns
+|
+|--------------------------------------------------------------------------
+*/
+
 class PasswordModel {
   final int? id;
   final String platform;
@@ -10,6 +85,7 @@ class PasswordModel {
   final DateTime? lastUsed;
   final String? notes;
   final bool isFavorite;
+  final bool isTravelSafe;
   final List<String>? passwordHistory;
   final String? passwordFingerprint;
   final String? otpMeta;
@@ -26,6 +102,7 @@ class PasswordModel {
     this.lastUsed,
     this.notes,
     this.isFavorite = false,
+    this.isTravelSafe = false,
     this.passwordHistory,
     this.passwordFingerprint,
     this.otpMeta,
@@ -93,9 +170,9 @@ class PasswordModel {
       'last_used': lastUsed?.toIso8601String(),
       'notes': notes,
       'is_favorite': isFavorite ? 1 : 0,
+      'is_travel_safe': isTravelSafe ? 1 : 0,
       'password_history': passwordHistory?.join('|||'),
       'otp_meta': otpMeta,
-      
     };
   }
 
@@ -119,10 +196,10 @@ class PasswordModel {
         : null,
       notes: map['notes'],
       isFavorite: map['is_favorite'] == 1,
+      isTravelSafe: map['is_travel_safe'] == 1,
       passwordHistory: map['password_history'] != null
         ? (map['password_history'] as String).split('|||')
         : null,
-      
       otpMeta: map['otp_meta'],
     );
   }
@@ -139,6 +216,7 @@ class PasswordModel {
     DateTime? lastUsed,
     String? notes,
     bool? isFavorite,
+    bool? isTravelSafe,
     List<String>? passwordHistory,
   }) {
     return PasswordModel(
@@ -153,7 +231,10 @@ class PasswordModel {
       lastUsed: lastUsed ?? this.lastUsed,
       notes: notes ?? this.notes,
       isFavorite: isFavorite ?? this.isFavorite,
+      isTravelSafe: isTravelSafe ?? this.isTravelSafe,
       passwordHistory: passwordHistory ?? this.passwordHistory,
+      passwordFingerprint: this.passwordFingerprint,
+      otpMeta: this.otpMeta,
     );
   }
 }
