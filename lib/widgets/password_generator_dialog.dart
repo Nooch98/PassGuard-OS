@@ -49,7 +49,7 @@ class PasswordGeneratorDialog extends StatefulWidget {
 
 class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
   int _selectedMode = 0;
-
+  
   int _passwordLength = 20;
   bool _includeUppercase = true;
   bool _includeLowercase = true;
@@ -86,7 +86,6 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
   void _generatePassword() {
     try {
       GeneratorOptions opt;
-
       switch (_selectedMode) {
         case 0:
           opt = GeneratorOptions(
@@ -100,7 +99,6 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
             enforceAllSets: _enforceAllSets,
           );
           break;
-
         case 1:
           opt = GeneratorOptions(
             mode: GeneratorMode.diceware,
@@ -112,7 +110,6 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
             useSmartLeet: _useSmartLeet,
           );
           break;
-
         case 2:
           opt = GeneratorOptions(
             mode: GeneratorMode.pattern,
@@ -121,11 +118,9 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
             avoidAmbiguous: false,
           );
           break;
-
         default:
           opt = const GeneratorOptions(mode: GeneratorMode.random);
       }
-
       final res = _gen.generate(opt);
       setState(() => _currentResult = res);
     } catch (e) {
@@ -139,29 +134,38 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
     final themeColor = _getStrengthColor(res?.strength);
 
     return Dialog(
-      backgroundColor: const Color(0xFF0A0A0E),
+      backgroundColor: const Color(0xFF0D0D12),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(4),
-        side: BorderSide(color: themeColor, width: 1.5),
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: themeColor.withOpacity(0.5), width: 1),
       ),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 720),
-        padding: const EdgeInsets.all(24),
+        constraints: const BoxConstraints(maxWidth: 450),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildHeader(themeColor),
-            const SizedBox(height: 20),
-            _buildModeSelector(),
-            const SizedBox(height: 24),
-            _buildOutputDisplay(res, themeColor),
-            const SizedBox(height: 24),
-            Expanded(
-              child: SingleChildScrollView(child: _buildSettings()),
+
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildModeSelector(),
+                    const SizedBox(height: 20),
+                    _buildOutputDisplay(res, themeColor),
+                    const SizedBox(height: 25),
+                    const Text("CONFIGURATION_PARAMETERS", 
+                      style: TextStyle(color: Colors.white24, fontSize: 9, letterSpacing: 2, fontFamily: 'monospace')),
+                    const SizedBox(height: 15),
+                    _buildSettings(),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 20),
-            _buildActionButtons(res),
+            _buildActionButtons(res, themeColor),
           ],
         ),
       ),
@@ -169,41 +173,47 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
   }
 
   Widget _buildHeader(Color color) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          '> PASS_GEN_PRO_V3',
-          style: TextStyle(
-            color: color,
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 2,
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.hub_rounded, color: color, size: 20),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('PASS_GEN_PRO_V3', 
+                style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.5, fontFamily: 'monospace')),
+              const Text('HIGH_ENTROPY_GENERATOR', style: TextStyle(color: Colors.white24, fontSize: 9)),
+            ],
           ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            border: Border.all(color: color),
-            borderRadius: BorderRadius.circular(2),
-          ),
-          child: Text(
-            'OFFLINE_SECURE',
-            style: TextStyle(color: color, fontSize: 8),
-          ),
-        )
-      ],
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              border: Border.all(color: color.withOpacity(0.3)),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text('OFFLINE', style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.bold)),
+          )
+        ],
+      ),
     );
   }
 
   Widget _buildModeSelector() {
-    return SizedBox(
+    return Container(
+      margin: const EdgeInsets.only(top: 20),
       width: double.infinity,
       child: SegmentedButton<int>(
         segments: const [
-          ButtonSegment(value: 0, label: Text('RANDOM', style: TextStyle(fontSize: 10))),
-          ButtonSegment(value: 1, label: Text('DICWARE', style: TextStyle(fontSize: 10))),
-          ButtonSegment(value: 2, label: Text('PIN_CODE', style: TextStyle(fontSize: 10))),
+          ButtonSegment(value: 0, label: Text('RANDOM'), icon: Icon(Icons.shuffle, size: 14)),
+          ButtonSegment(value: 1, label: Text('PHRASE'), icon: Icon(Icons.menu_book, size: 14)),
+          ButtonSegment(value: 2, label: Text('PIN'), icon: Icon(Icons.dialpad, size: 14)),
         ],
         selected: {_selectedMode},
         onSelectionChanged: (Set<int> selected) {
@@ -218,62 +228,57 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
   Widget _buildOutputDisplay(GeneratedPassword? res, Color color) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: const Color(0xFF16161D),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.5), width: 1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Expanded(
                 child: SelectableText(
-                  res?.value ?? 'LOADING...',
+                  res?.value ?? 'INITIATING...',
+                  textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 18,
+                    fontSize: 22,
                     fontFamily: 'monospace',
                     fontWeight: FontWeight.bold,
-                    letterSpacing: 1.2,
+                    letterSpacing: 1.5,
                   ),
                 ),
               ),
               IconButton(
-                icon: Icon(Icons.refresh, color: color, size: 20),
+                icon: Icon(Icons.refresh_rounded, color: color),
                 onPressed: _generatePassword,
-              ),
-              IconButton(
-                icon: const Icon(Icons.copy, color: Color(0xFFFF00FF), size: 20),
-                onPressed: () {
-                  if (res == null) return;
-                  Clipboard.setData(ClipboardData(text: res.value));
-                  _showToast(context, 'HASH_COPIED_TO_BUFFER');
-                },
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          LinearProgressIndicator(
-            value: ((res?.entropyBits ?? 0) / 128).clamp(0, 1),
-            backgroundColor: Colors.white10,
-            color: color,
-            minHeight: 4,
+          const SizedBox(height: 20),
+          Row(
+            children: List.generate(4, (index) {
+              bool active = (res?.entropyBits ?? 0) > (index * 32);
+              return Expanded(
+                child: Container(
+                  height: 4,
+                  margin: const EdgeInsets.symmetric(horizontal: 2),
+                  decoration: BoxDecoration(
+                    color: active ? color : Colors.white10,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              );
+            }),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'ENTROPY: ${res?.entropyBits.toStringAsFixed(1) ?? "0"} BITS',
-                style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold),
-              ),
-              Text(
-                'CRACK_TIME: ${res?.crackTime.toUpperCase() ?? "N/A"}',
-                style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold),
-              ),
+              _buildStat("${res?.entropyBits.toInt() ?? 0} bits", "ENTROPY", color),
+              _buildStat(res?.crackTime.toUpperCase() ?? "N/A", "CRACK_TIME", color),
             ],
           ),
         ],
@@ -281,65 +286,91 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
     );
   }
 
+  Widget _buildStat(String val, String label, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white24, fontSize: 8)),
+        Text(val, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+      ],
+    );
+  }
+
   Widget _buildSettings() {
     switch (_selectedMode) {
-      case 0: return _buildPasswordSettings();
-      case 1: return _buildPassphraseSettings();
-      case 2: return _buildPinSettings();
+      case 0: return _buildRandomPanel();
+      case 1: return _buildPhrasePanel();
+      case 2: return _buildPinPanel();
       default: return const SizedBox();
     }
   }
 
-  Widget _buildPasswordSettings() {
+  Widget _buildRandomPanel() {
     return Column(
       children: [
-        _buildSlider('LENGTH', _passwordLength, 8, 64, (v) => setState(() => _passwordLength = v.toInt())),
-        _buildCheckbox('UPPERCASE (A-Z)', _includeUppercase, (v) => setState(() => _includeUppercase = v!)),
-        _buildCheckbox('LOWERCASE (a-z)', _includeLowercase, (v) => setState(() => _includeLowercase = v!)),
-        _buildCheckbox('NUMBERS (0-9)', _includeNumbers, (v) => setState(() => _includeNumbers = v!)),
-        _buildCheckbox('SYMBOLS (!@#...)', _includeSymbols, (v) => setState(() => _includeSymbols = v!)),
-        _buildCheckbox('AVOID AMBIGUOUS (Il1O0)', _excludeAmbiguous, (v) => setState(() => _excludeAmbiguous = v!)),
-        _buildCheckbox('STRICT MODE (MIN 1 EACH)', _enforceAllSets, (v) => setState(() => _enforceAllSets = v!)),
+        _buildSliderSetting("CHAR_LENGTH", _passwordLength, 8, 64, (v) => setState(() => _passwordLength = v.toInt())),
+        const SizedBox(height: 10),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          childAspectRatio: 3.5,
+          children: [
+            _buildToggle("A-Z", _includeUppercase, (v) => setState(() => _includeUppercase = v!)),
+            _buildToggle("a-z", _includeLowercase, (v) => setState(() => _includeLowercase = v!)),
+            _buildToggle("0-9", _includeNumbers, (v) => setState(() => _includeNumbers = v!)),
+            _buildToggle("!@#", _includeSymbols, (v) => setState(() => _includeSymbols = v!)),
+          ],
+        ),
+        _buildToggle("AVOID_AMBIGUOUS", _excludeAmbiguous, (v) => setState(() => _excludeAmbiguous = v!)),
       ],
     );
   }
 
-  Widget _buildPassphraseSettings() {
+  Widget _buildPhrasePanel() {
     return Column(
       children: [
-        _buildSlider('WORDS', _wordCount, 3, 10, (v) => setState(() => _wordCount = v.toInt())),
-        _buildCheckbox('CAPITALIZE WORD', _diceCapitalize, (v) => setState(() => _diceCapitalize = v!)),
-        _buildCheckbox('SMART LEETSPEAK (4=A, 3=E)', _useSmartLeet, (v) => setState(() => _useSmartLeet = v!)),
-        _buildCheckbox('APPEND NUMBER', _diceAddNumber, (v) => setState(() => _diceAddNumber = v!)),
-        _buildCheckbox('APPEND SYMBOL', _diceAddSymbol, (v) => setState(() => _diceAddSymbol = v!)),
+        _buildSliderSetting("WORD_COUNT", _wordCount, 3, 10, (v) => setState(() => _wordCount = v.toInt())),
+        const SizedBox(height: 10),
+        _buildToggle("CAPITALIZE", _diceCapitalize, (v) => setState(() => _diceCapitalize = v!)),
+        _buildToggle("SMART_LEET", _useSmartLeet, (v) => setState(() => _useSmartLeet = v!)),
+        _buildToggle("ADD_NUMBER", _diceAddNumber, (v) => setState(() => _diceAddNumber = v!)),
       ],
     );
   }
 
-  Widget _buildPinSettings() {
+  Widget _buildPinPanel() {
     return Column(
       children: [
-        _buildSlider('PIN DIGITS', _pinLength, 4, 16, (v) => setState(() => _pinLength = v.toInt())),
-        const Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Text(
-            'High-speed numeric generation. Entropy is lower but memorability is higher for device unlocks.',
-            style: TextStyle(color: Colors.white38, fontSize: 10),
+        _buildSliderSetting("PIN_LENGTH", _pinLength, 4, 16, (v) => setState(() => _pinLength = v.toInt())),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: Colors.orange.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
+          child: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 16),
+              SizedBox(width: 10),
+              Expanded(child: Text("Numeric PINs have lower entropy than alphanumeric strings.", style: TextStyle(color: Colors.orange, fontSize: 10))),
+            ],
           ),
         )
       ],
     );
   }
 
-  Widget _buildSlider(String label, int val, double min, double max, Function(double) onChg) {
+  Widget _buildSliderSetting(String label, int val, double min, double max, Function(double) onChg) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('$label: $val', style: const TextStyle(color: Colors.white70, fontSize: 10)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'monospace')),
+            Text(val.toString(), style: const TextStyle(color: Color(0xFF00FBFF), fontWeight: FontWeight.bold)),
+          ],
+        ),
         Slider(
           value: val.toDouble(),
-          min: min,
-          max: max,
+          min: min, max: max,
           divisions: (max - min).toInt(),
           activeColor: const Color(0xFF00FBFF),
           onChanged: (v) { onChg(v); _generatePassword(); },
@@ -348,41 +379,48 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
     );
   }
 
-  Widget _buildCheckbox(String label, bool value, Function(bool?) onChg) {
+  Widget _buildToggle(String label, bool value, Function(bool?) onChg) {
     return CheckboxListTile(
-      title: Text(label, style: const TextStyle(color: Colors.white, fontSize: 11)),
+      title: Text(label, style: const TextStyle(color: Colors.white, fontSize: 11, fontFamily: 'monospace')),
       value: value,
       onChanged: (v) { onChg(v); _generatePassword(); },
       activeColor: const Color(0xFF00FBFF),
       checkColor: Colors.black,
       dense: true,
+      contentPadding: EdgeInsets.zero,
       controlAffinity: ListTileControlAffinity.leading,
     );
   }
 
-  Widget _buildActionButtons(GeneratedPassword? res) {
-    return Row(
-      children: [
-        Expanded(
-          child: OutlinedButton(
-            onPressed: () => Navigator.pop(context),
-            style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white24)),
-            child: const Text('ABORT', style: TextStyle(color: Colors.white, fontSize: 12)),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          flex: 2,
-          child: ElevatedButton(
-            onPressed: res == null ? null : () => Navigator.pop(context, res.value),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _getStrengthColor(res?.strength),
-              foregroundColor: Colors.black,
+  Widget _buildActionButtons(GeneratedPassword? res, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: const BoxDecoration(border: Border(top: BorderSide(color: Colors.white))),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('ABORT', style: TextStyle(color: Colors.white38, fontSize: 12)),
             ),
-            child: const Text('INJECT_CREDENTIAL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
           ),
-        ),
-      ],
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: ElevatedButton.icon(
+              onPressed: res == null ? null : () => Navigator.pop(context, res.value),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: color,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+              label: const Text('USE_GENERATED', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -399,17 +437,11 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
 
   ButtonStyle _segmentedButtonStyle() {
     return ButtonStyle(
+      textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
       backgroundColor: WidgetStateProperty.resolveWith((states) =>
           states.contains(WidgetState.selected) ? const Color(0xFF00FBFF) : Colors.transparent),
       foregroundColor: WidgetStateProperty.resolveWith((states) =>
-          states.contains(WidgetState.selected) ? Colors.black : Colors.white70),
-      side: WidgetStateProperty.all(const BorderSide(color: Colors.white10)),
-    );
-  }
-
-  void _showToast(BuildContext context, String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(seconds: 1), behavior: SnackBarBehavior.floating),
+          states.contains(WidgetState.selected) ? Colors.black : Colors.white38),
     );
   }
 }
