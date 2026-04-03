@@ -694,23 +694,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _showSuccessSnackBar("IMPORT_SYNC_COMPLETE: $importedCount new entries");
   }
 
-  void _showProcessingDialog(String message) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF0A0A0E),
-        content: Row(
-          children: [
-            const CircularProgressIndicator(color: Color(0xFF00FBFF)),
-            const SizedBox(width: 20),
-            Text(message, style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 12, fontFamily: 'Courier')),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _showSecureBundleManager() {
     final TextEditingController _passController = TextEditingController();
 
@@ -809,206 +792,207 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       context: context,
       backgroundColor: const Color(0xFF0A0A0E),
       isScrollControlled: true,
-      shape: const Border(top: BorderSide(color: Color(0xFF00FBFF), width: 2)),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        side: BorderSide(color: Color(0xFF00FBFF), width: 1.5),
+      ),
       builder: (context) => SafeArea(
         child: Container(
           constraints: BoxConstraints(
             maxHeight: MediaQuery.of(context).size.height * 0.85,
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 20),
-                const Text("> SYSTEM_CORE_SETTINGS",
-                    style: TextStyle(
-                        color: Color(0xFF00FBFF),
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.5)),
-                const SizedBox(height: 20),
-
-                // UPGRADE ALL DATA TO NEW SYSTEMS ENCRYPTION
-                ListTile(
-                  leading: const Icon(Icons.security_update_good, color: Color(0xFF00FBFF)),
-                  title: const Text("MAINTAIN_BUNKER_INTEGRITY"),
-                  subtitle: const Text("Sync all records to the latest cryptographic standard",
-                      style: TextStyle(fontSize: 10, color: Colors.grey)),
-                  onTap: () async {
-                    Navigator.pop(context);
-                    _showUniversalUpgradeConfirmation();
-                  },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                const SizedBox(height: 20),
-
-                // BIOMETRIC
-                ListTile(
-                  leading: const Icon(Icons.fingerprint, color: Color(0xFF00FBFF)),
-                  title: const Text("LINK_BIOMETRIC_VAULT"),
-                  onTap: () async {
-                    Navigator.pop(context);
-                    await AuthService.saveMasterKeyForBio(utf8.decode(widget.masterKey));
-                    _showSuccessSnackBar("BIO_LINK_SUCCESS: ENCRYPTED_IN_HARDWARE");
-                  },
+              ),
+              const SizedBox(height: 20),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24),
+                child: Row(
+                  children: [
+                    Text("> ", style: TextStyle(color: Color(0xFF00FBFF), fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text("SYSTEM_CORE_SETTINGS",
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2.0)),
+                  ],
                 ),
+              ),
+              const SizedBox(height: 20),
 
-                // STEALTH CODE
-                /*ListTile(
-                  leading: const Icon(Icons.dialpad, color: Color(0xFF00FBFF)),
-                  title: const Text("CHANGE_STEALTH_CODE"),
-                  onTap: () { Navigator.pop(context); _showStealthCodeDialog(); },
-                ),*/
-
-                const Divider(color: Colors.white10),
-
-                // SESSION TIMEOUT
-                ListTile(
-                  leading: const Icon(Icons.timer, color: Color(0xFFFF00FF)),
-                  title: const Text("SESSION_TIMEOUT"),
-                  subtitle: FutureBuilder<int>(
-                    future: AuthService.getSessionTimeout(),
-                    builder: (context, snapshot) {
-                      return Text(
-                        '${snapshot.data ?? 5} minutes',
-                        style: const TextStyle(fontSize: 10, color: Colors.grey),
-                      );
-                    },
-                  ),
-                  onTap: () { Navigator.pop(context); _showSessionTimeoutDialog(); },
-                ),
-
-                // AUTO LOCK
-                FutureBuilder<bool>(
-                  future: AuthService.getAutoLockEnabled(),
-                  builder: (context, snapshot) {
-                    return SwitchListTile(
-                      secondary: const Icon(Icons.lock_clock, color: Color(0xFFFF00FF)),
-                      title: const Text("AUTO_LOCK_ON_MINIMIZE"),
-                      subtitle: const Text('Lock vault when app is minimized', 
-                                          style: TextStyle(fontSize: 10, color: Colors.grey)),
-                      value: snapshot.data ?? true,
-                      activeColor: const Color(0xFF00FBFF),
-                      onChanged: (val) async {
-                        await AuthService.setAutoLockEnabled(val);
-                        setState(() {});
-                      },
-                    );
-                  },
-                ),
-
-                // SCREENSHOT PROTECTION
-                if (Platform.isAndroid)
-                  FutureBuilder<bool>(
-                    future: AuthService.getScreenshotProtection(),
-                    builder: (context, snapshot) {
-                      return SwitchListTile(
-                        secondary: const Icon(Icons.screenshot, color: Color(0xFFFF00FF)),
-                        title: const Text("SCREENSHOT_PROTECTION"),
-                        subtitle: const Text('Prevent screenshots (requires restart)', 
-                                            style: TextStyle(fontSize: 10, color: Colors.grey)),
-                        value: snapshot.data ?? true,
-                        activeColor: const Color(0xFF00FBFF),
-                        onChanged: (val) async {
-                          await AuthService.setScreenshotProtection(val);
-                          setState(() {});
-                          _showSuccessSnackBar("RESTART_APP_TO_APPLY");
-                        },
-                      );
-                    },
-                  ),
-
-                const Divider(color: Colors.white10),
-
-                // QR TRANSFER
-                ListTile(
-                  leading: const Icon(Icons.qr_code_2, color: Color(0xFFFF00FF)),
-                  title: const Text("GENERATE_TRANSMISSION_QR"),
-                  onTap: () { Navigator.pop(context); _showQRGenerator(); },
-                ),
-
-                ListTile(
-                  leading: const Icon(Icons.qr_code_scanner, color: Color(0xFFFF00FF)),
-                  title: const Text("RECEIVE_DATA_STREAM"),
-                  onTap: () { Navigator.pop(context); _showScanner(); },
-                ),
-
-                const Divider(color: Colors.white10),
-
-                FutureBuilder<bool>(
-                  future: AuthService.getTravelModeEnabled(), // Necesitas crear este getter en AuthService
-                  builder: (context, snapshot) {
-                    bool isActive = snapshot.data ?? false;
-                    return SwitchListTile(
-                      secondary: Icon(
-                        Icons.flight_takeoff, 
-                        color: isActive ? const Color(0xFF00FBFF) : const Color(0xFFFF00FF)
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    children: [
+                      _buildSystemGroup(
+                        label: "ACCESS_CONTROL",
+                        items: [
+                          ListTile(
+                            leading: const Icon(Icons.security_update_good, color: Color(0xFF00FBFF)),
+                            title: const Text("MAINTAIN_BUNKER_INTEGRITY", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            subtitle: const Text("Sync to latest crypto standard", style: TextStyle(fontSize: 10, color: Colors.grey)),
+                            onTap: () { Navigator.pop(context); _showUniversalUpgradeConfirmation(); },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.fingerprint, color: Color(0xFF00FBFF)),
+                            title: const Text("LINK_BIOMETRIC_VAULT", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            onTap: () async {
+                              Navigator.pop(context);
+                              await AuthService.saveMasterKeyForBio(utf8.decode(widget.masterKey));
+                              _showSuccessSnackBar("BIO_LINK_SUCCESS");
+                            },
+                          ),
+                          /*ListTile(
+                            leading: const Icon(Icons.dialpad, color: Color(0xFF00FBFF)),
+                            title: const Text("CHANGE_STEALTH_CODE", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            onTap: () { Navigator.pop(context); _showStealthCodeDialog(); },
+                          ),*/
+                        ],
                       ),
-                      title: const Text("TRAVEL_MODE_PROTOCOL"),
-                      subtitle: Text(
-                        isActive 
-                          ? 'ACTIVE: Sensitive nodes are currently hidden' 
-                          : 'Hide pre-selected sensitive accounts for safe travel',
-                        style: const TextStyle(fontSize: 10, color: Colors.grey)
+
+                      _buildSystemGroup(
+                        label: "AUTO_PROTECTION_PROTOCOLS",
+                        items: [
+                          ListTile(
+                            leading: const Icon(Icons.timer, color: Color(0xFFFF00FF)),
+                            title: const Text("SESSION_TIMEOUT", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            trailing: FutureBuilder<int>(
+                              future: AuthService.getSessionTimeout(),
+                              builder: (context, snapshot) => Text('${snapshot.data ?? 5}m', style: const TextStyle(color: Color(0xFFFF00FF))),
+                            ),
+                            onTap: () { Navigator.pop(context); _showSessionTimeoutDialog(); },
+                          ),
+                          FutureBuilder<bool>(
+                            future: AuthService.getAutoLockEnabled(),
+                            builder: (context, snapshot) => SwitchListTile(
+                              secondary: const Icon(Icons.lock_clock, color: Color(0xFFFF00FF)),
+                              title: const Text("AUTO_LOCK_ON_MINIMIZE", style: TextStyle(color: Colors.white, fontSize: 13)),
+                              value: snapshot.data ?? true,
+                              activeColor: const Color(0xFF00FBFF),
+                              onChanged: (val) async {
+                                await AuthService.setAutoLockEnabled(val);
+                                setState(() {});
+                              },
+                            ),
+                          ),
+                          if (Platform.isAndroid)
+                            FutureBuilder<bool>(
+                              future: AuthService.getScreenshotProtection(),
+                              builder: (context, snapshot) => SwitchListTile(
+                                secondary: const Icon(Icons.screenshot, color: Color(0xFFFF00FF)),
+                                title: const Text("SCREENSHOT_PROTECTION", style: TextStyle(color: Colors.white, fontSize: 13)),
+                                value: snapshot.data ?? true,
+                                activeColor: const Color(0xFF00FBFF),
+                                onChanged: (val) async {
+                                  await AuthService.setScreenshotProtection(val);
+                                  setState(() {});
+                                  _showSuccessSnackBar("RESTART_REQUIRED");
+                                },
+                              ),
+                            ),
+                        ],
                       ),
-                      value: isActive,
-                      activeColor: const Color(0xFF00FBFF),
-                      onChanged: (val) async {
-                        if (val == false) {
-                          bool canProceed = await _showTravelDeactivationCheck();
-                          if (!canProceed) return;
-                        }
 
-                        await AuthService.setTravelModeEnabled(val);
+                      _buildSystemGroup(
+                        label: "DATA_TRANSMISSION",
+                        items: [
+                          ListTile(
+                            leading: const Icon(Icons.qr_code_2, color: Color(0xFF00FBFF)),
+                            title: const Text("GENERATE_TRANSMISSION_QR", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            onTap: () { Navigator.pop(context); _showQRGenerator(); },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.qr_code_scanner, color: Color(0xFF00FBFF)),
+                            title: const Text("RECEIVE_DATA_STREAM", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            onTap: () { Navigator.pop(context); _showScanner(); },
+                          ),
+                          FutureBuilder<bool>(
+                            future: AuthService.getTravelModeEnabled(),
+                            builder: (context, snapshot) {
+                              bool isActive = snapshot.data ?? false;
+                              return SwitchListTile(
+                                secondary: Icon(Icons.flight_takeoff, color: isActive ? Colors.yellow : const Color(0xFFFF00FF)),
+                                title: const Text("TRAVEL_MODE_PROTOCOL", style: TextStyle(color: Colors.white, fontSize: 13)),
+                                value: isActive,
+                                activeColor: const Color(0xFF00FBFF),
+                                onChanged: (val) async {
+                                  if (!val) {
+                                    bool canProceed = await _showTravelDeactivationCheck();
+                                    if (!canProceed) return;
+                                  }
+                                  await AuthService.setTravelModeEnabled(val);
+                                  Navigator.pop(context);
+                                  setState(() { _loadPasswords(); });
+                                },
+                              );
+                            },
+                          ),
+                        ],
+                      ),
 
-                        Navigator.pop(context); 
-
-                        setState(() {
-                          _loadPasswords(); 
-                        });
-
-                        _showSuccessSnackBar(val ? "TRAVEL_MODE: ENGAGED" : "TRAVEL_MODE: DISENGAGED");
-                      },
-                    );
-                  },
+                      _buildSystemGroup(
+                        label: "ARCHIVE_PROTOCOLS",
+                        items: [
+                          ListTile(
+                            leading: const Icon(Icons.ac_unit, color: Color(0xFF00FBFF)),
+                            title: const Text("COLD_STORAGE_PROTOCOLS", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            subtitle: const Text("Steganographic injection", style: TextStyle(fontSize: 10, color: Colors.grey)),
+                            onTap: () { Navigator.pop(context); _showColdStorageDialog(); },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.inventory_2, color: Color(0xFF00FBFF)),
+                            title: const Text("ENCRYPTED_JSON_BUNDLE", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            onTap: () { Navigator.pop(context); _showSecureBundleManager(); },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.file_download, color: Color(0xFF00FBFF)),
+                            title: const Text("EXPORT_VAULT_CSV", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            onTap: () { Navigator.pop(context); _exportToCSV(); },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 40),
+                    ],
+                  ),
                 ),
-
-                // COLD STORAGE
-                ListTile(
-                  leading: const Icon(Icons.ac_unit, color: Color(0xFF00FBFF)),
-                  title: const Text("COLD_STORAGE_PROTOCOLS"),
-                  subtitle: const Text("Steganographic image injection",
-                      style: TextStyle(fontSize: 10, color: Colors.grey)),
-                  onTap: () { Navigator.pop(context); _showColdStorageDialog(); },
-                ),
-
-                ListTile(
-                  leading: const Icon(Icons.inventory_2, color: Color(0xFF00FBFF)),
-                  title: const Text("ENCRYPTED_JSON_BUNDLE"),
-                  subtitle: const Text("Export a v5 Argon2id encrypted backup package",
-                      style: TextStyle(fontSize: 10, color: Colors.grey)),
-                  onTap: () { 
-                    Navigator.pop(context); 
-                    _showSecureBundleManager();
-                  },
-                ),
-
-                // EXPORT DATA
-                ListTile(
-                  leading: const Icon(Icons.file_download, color: Color(0xFF00FBFF)),
-                  title: const Text("EXPORT_VAULT_CSV"),
-                  subtitle: const Text("Export passwords to encrypted CSV",
-                      style: TextStyle(fontSize: 10, color: Colors.grey)),
-                  onTap: () { Navigator.pop(context); _exportToCSV(); },
-                ),
-
-                const SizedBox(height: 40),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSystemGroup({required String label, required List<Widget> items}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 8, bottom: 8, top: 12),
+          child: Text(label, style: const TextStyle(color: Colors.white30, fontSize: 10, letterSpacing: 1.5, fontWeight: FontWeight.bold)),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: Column(children: items),
+        ),
+        const SizedBox(height: 10),
+      ],
     );
   }
 
@@ -1099,7 +1083,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
     );
     
-    _passController.dispose();
+    Future.delayed(const Duration(milliseconds: 200), () {
+      _passController.dispose();
+    });
     return confirmed;
   }
 
@@ -1336,29 +1322,107 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF0A0A0E),
+        backgroundColor: const Color(0xFF0D0D12),
+        contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
         shape: RoundedRectangleBorder(
-          side: const BorderSide(color: Color(0xFF00FBFF), width: 1.5),
-          borderRadius: BorderRadius.circular(2),
+          side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
+          borderRadius: BorderRadius.circular(16),
         ),
-        title: const Text("> COLD_STORAGE_MENU",
-            style: TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace', fontSize: 16)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+        title: Row(
           children: [
-            _buildTerminalButton(
-              icon: Icons.photo_library,
-              label: "INJECT_INTO_IMAGE",
-              onPressed: () { Navigator.pop(context); _handleImageInjection(); },
-            ),
-            const SizedBox(height: 15),
-            _buildTerminalButton(
-              icon: Icons.visibility,
-              label: "EXTRACT_FROM_IMAGE",
-              onPressed: () { Navigator.pop(context); _handleImageExtraction(); },
+            const Icon(Icons.ac_unit_rounded, color: Color(0xFF00FBFF), size: 20),
+            const SizedBox(width: 12),
+            const Text(
+              "COLD_STORAGE",
+              style: TextStyle(
+                color: Color(0xFF00FBFF), 
+                fontFamily: 'monospace', 
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2
+              ),
             ),
           ],
         ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Protocol for steganographic data injection and extraction.",
+              style: TextStyle(color: Colors.white24, fontSize: 11, fontFamily: 'monospace'),
+              textAlign: TextAlign.left,
+            ),
+            const SizedBox(height: 25),
+
+            InkWell(
+              onTap: () { Navigator.pop(context); _handleImageInjection(); },
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00FBFF).withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF00FBFF).withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.drive_folder_upload_rounded, color: Color(0xFF00FBFF)),
+                    const SizedBox(width: 15),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("INJECT_PAYLOAD", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                          Text("Hide data inside image pixels", style: TextStyle(color: Colors.white38, fontSize: 10)),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.arrow_forward_ios_rounded, color: const Color(0xFF00FBFF).withOpacity(0.3), size: 14),
+                  ],
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 12),
+
+            InkWell(
+              onTap: () { Navigator.pop(context); _handleImageExtraction(); },
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF00FF).withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFF00FF).withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.biotech_sharp, color: Color(0xFFFF00FF)),
+                    const SizedBox(width: 15),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("EXTRACT_DATA", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                          Text("Retrieve nodes from carrier file", style: TextStyle(color: Colors.white38, fontSize: 10)),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.arrow_forward_ios_rounded, color: const Color(0xFFFF00FF).withOpacity(0.3), size: 14),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("CLOSE_INTERFACE", 
+              style: TextStyle(color: Colors.white24, fontSize: 10, fontFamily: 'monospace')),
+          ),
+        ],
       ),
     );
   }
@@ -1807,138 +1871,120 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     String localSelectedCategory = existingPassword?.category ?? 'PERSONAL';
 
     final List<Map<String, dynamic>> categories = [
-      {'name': 'PERSONAL', 'icon': Icons.person, 'color': const Color(0xFF00FBFF)},
-      {'name': 'WORK', 'icon': Icons.business_center, 'color': const Color(0xFFFF00FF)},
-      {'name': 'FINANCE', 'icon': Icons.account_balance_wallet, 'color': const Color(0xFF00FF00)},
-      {'name': 'SOCIAL', 'icon': Icons.public, 'color': const Color(0xFFFFFF00)},
+      {'name': 'PERSONAL', 'icon': Icons.person_rounded, 'color': const Color(0xFF00FBFF)},
+      {'name': 'WORK', 'icon': Icons.business_center_rounded, 'color': const Color(0xFFFF00FF)},
+      {'name': 'FINANCE', 'icon': Icons.account_balance_wallet_rounded, 'color': const Color(0xFF00FF00)},
+      {'name': 'SOCIAL', 'icon': Icons.public_rounded, 'color': const Color(0xFFFFFF00)},
     ];
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0A0A0E),
+      backgroundColor: const Color(0xFF0D0D12),
       isScrollControlled: true,
-      shape: const Border(top: BorderSide(color: Color(0xFF00FBFF), width: 2)),
-      builder: (_) => Padding(
-        padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-            top: 20, left: 20, right: 20),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Text(
-                  existingPassword == null ? "> NEW_ENTRY_NODE" : "> EDIT_NODE",
-                  style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 18, letterSpacing: 2),
-                ),
-              ),
-              const SizedBox(height: 20),
-              
-              TextField(
-                controller: platformC,
-                decoration: const InputDecoration(labelText: "PLATFORM"),
-                style: const TextStyle(color: Colors.white),
-              ),
-              
-              TextField(
-                controller: userC,
-                decoration: const InputDecoration(labelText: "USER_ID"),
-                style: const TextStyle(color: Colors.white),
-              ),
-              
-              TextField(
-                controller: passC,
-                decoration: InputDecoration(
-                  labelText: "CREDENTIALS",
-                  suffixIcon: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.auto_fix_high, color: Color(0xFFFF00FF)),
-                        tooltip: "ADVANCED_GENERATOR",
-                        onPressed: () async {
-                          final result = await showDialog<String>(
-                            context: context,
-                            builder: (context) => const PasswordGeneratorDialog(),
-                          );
-                          if (result != null) {
-                            passC.text = result;
-                          }
-                        },
-                      ),
-                    ],
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        side: BorderSide(color: Color(0xFF00FBFF), width: 1),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+              top: 15, left: 24, right: 24),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
-                style: const TextStyle(color: Colors.white),
-              ),
-              
-              const SizedBox(height: 15),
-              
-              TextField(
-                controller: notesC,
-                decoration: const InputDecoration(
-                  labelText: "NOTES (Optional, Encrypted)",
-                  hintText: "Security questions, backup codes, etc.",
-                  hintStyle: TextStyle(fontSize: 10, color: Colors.white24),
+                const SizedBox(height: 20),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      existingPassword == null ? "> INITIALIZE_NEW_NODE" : "> MODIFY_NODE_DATA",
+                      style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 14, letterSpacing: 2, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                    ),
+                    Icon(Icons.terminal, color: Colors.white.withOpacity(0.1), size: 18),
+                  ],
                 ),
-                maxLines: 3,
-                style: const TextStyle(color: Colors.white),
-              ),
-              
-              const SizedBox(height: 25),
-              const Text("> NODE_CLASSIFICATION:",
-                  style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1)),
-              const SizedBox(height: 10),
-              
-              StatefulBuilder(
-                builder: (context, setModalState) {
-                  return Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                const SizedBox(height: 25),
+
+                _buildCyberInput(controller: platformC, label: "PLATFORM_ID", icon: Icons.language_rounded),
+                const SizedBox(height: 16),
+                _buildCyberInput(controller: userC, label: "USER_IDENTIFIER", icon: Icons.alternate_email_rounded),
+                const SizedBox(height: 16),
+
+                _buildCyberInput(
+                  controller: passC, 
+                  label: "ACCESS_CREDENTIAL", 
+                  icon: Icons.lock_outline_rounded,
+                  isPassword: true,
+                  suffix: IconButton(
+                    icon: const Icon(Icons.auto_fix_high, color: Color(0xFFFF00FF), size: 20),
+                    onPressed: () async {
+                      final result = await showDialog<String>(
+                        context: context,
+                        builder: (context) => const PasswordGeneratorDialog(),
+                      );
+                      if (result != null) setModalState(() => passC.text = result);
+                    },
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                _buildCyberInput(controller: notesC, label: "ENCRYPTED_NOTES", icon: Icons.description_outlined, maxLines: 2),
+                
+                const SizedBox(height: 25),
+
+                const Text("CLASSIFICATION_TAG:",
+                    style: TextStyle(color: Colors.white38, fontSize: 10, letterSpacing: 1, fontFamily: 'monospace')),
+                const SizedBox(height: 12),
+                
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
                     children: categories.map((cat) {
                       final bool isSelected = localSelectedCategory == cat['name'];
-                      return ChoiceChip(
-                        label: Text(cat['name'],
-                            style: TextStyle(
-                                color: isSelected ? Colors.black : cat['color'],
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold
-                            )),
-                        selected: isSelected,
-                        selectedColor: cat['color'],
-                        backgroundColor: Colors.transparent,
-                        side: BorderSide(color: cat['color']),
-                        showCheckmark: false,
-                        onSelected: (bool selected) {
-                          setModalState(() {
-                            localSelectedCategory = cat['name'];
-                          });
-                        },
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Row(
+                            children: [
+                              Icon(cat['icon'], size: 14, color: isSelected ? Colors.black : cat['color']),
+                              const SizedBox(width: 6),
+                              Text(cat['name'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          selected: isSelected,
+                          selectedColor: cat['color'],
+                          backgroundColor: const Color(0xFF16161D),
+                          side: BorderSide(color: isSelected ? Colors.transparent : cat['color'].withOpacity(0.3)),
+                          showCheckmark: false,
+                          labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white70),
+                          onSelected: (selected) {
+                            setModalState(() => localSelectedCategory = cat['name']);
+                          },
+                        ),
                       );
                     }).toList(),
-                  );
-                },
-              ),
-              
-              const SizedBox(height: 30),
-              
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF00FBFF),
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(2))
                   ),
-                  onPressed: () async {
+                ),
+                
+                const SizedBox(height: 35),
+
+                GestureDetector(
+                  onTap: () async {
                     if (platformC.text.isNotEmpty && passC.text.isNotEmpty) {
                       final db = await DBHelper.database;
-
                       final encryptedPass = EncryptionService.encrypt(passC.text, widget.masterKey);
-                      final encryptedNotes = notesC.text.isNotEmpty
-                          ? EncryptionService.encrypt(notesC.text, widget.masterKey)
+                      final encryptedNotes = notesC.text.isNotEmpty 
+                          ? EncryptionService.encrypt(notesC.text, widget.masterKey) 
                           : null;
 
                       final pepper = derivePepper(widget.masterKey);
@@ -1948,64 +1994,100 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       );
 
                       if (existingPassword == null) {
-                        await db.insert(
-                          'accounts',
-                          PasswordModel(
-                            platform: platformC.text,
-                            username: userC.text,
-                            password: encryptedPass,
-                            passwordFingerprint: passwordFp,
-                            category: localSelectedCategory,
-                            notes: encryptedNotes,
-                            createdAt: DateTime.now(),
-                            updatedAt: DateTime.now(),
-                          ).toMap(),
-                        );
+                        await db.insert('accounts', PasswordModel(
+                          platform: platformC.text,
+                          username: userC.text,
+                          password: encryptedPass,
+                          passwordFingerprint: passwordFp,
+                          category: localSelectedCategory,
+                          notes: encryptedNotes,
+                          createdAt: DateTime.now(),
+                          updatedAt: DateTime.now(),
+                        ).toMap());
                       } else {
-                        List<String>? history = existingPassword.passwordHistory ?? [];
+                        List<String> history = existingPassword.passwordHistory ?? [];
                         if (encryptedPass != existingPassword.password) {
                           history.add(existingPassword.password);
                           if (history.length > 5) history.removeAt(0);
                         }
-
-                        await db.update(
-                          'accounts',
-                          PasswordModel(
-                            id: existingPassword.id,
-                            platform: platformC.text,
-                            username: userC.text,
-                            password: encryptedPass,
-                            passwordFingerprint: passwordFp,
-                            category: localSelectedCategory,
-                            notes: encryptedNotes,
-                            createdAt: existingPassword.createdAt,
-                            updatedAt: DateTime.now(),
-                            otpSeed: existingPassword.otpSeed,
-                            isFavorite: existingPassword.isFavorite,
-                            passwordHistory: history,
-                          ).toMap(),
-                          where: 'id = ?',
-                          whereArgs: [existingPassword.id],
-                        );
+                        await db.update('accounts', PasswordModel(
+                          id: existingPassword.id,
+                          platform: platformC.text,
+                          username: userC.text,
+                          password: encryptedPass,
+                          passwordFingerprint: passwordFp,
+                          category: localSelectedCategory,
+                          notes: encryptedNotes,
+                          createdAt: existingPassword.createdAt,
+                          updatedAt: DateTime.now(),
+                          otpSeed: existingPassword.otpSeed,
+                          isFavorite: existingPassword.isFavorite,
+                          passwordHistory: history,
+                        ).toMap(), where: 'id = ?', whereArgs: [existingPassword.id]);
                       }
 
-                      if (mounted) {
+                      if (context.mounted) {
                         Navigator.pop(context);
                         _loadPasswords();
-                        _showSuccessSnackBar(existingPassword == null ? "NODE_CREATED" : "NODE_UPDATED");
+                        _showSuccessSnackBar(existingPassword == null ? "NODE_SECURED" : "NODE_UPDATED");
                       }
                     }
                   },
-                  child: Text(
-                    existingPassword == null ? "UPLOAD_TO_CORE" : "UPDATE_NODE",
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFF00FBFF), Color(0xFF00A2FF)]),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(color: const Color(0xFF00FBFF).withOpacity(0.3), blurRadius: 15, offset: const Offset(0, 5))
+                      ],
+                    ),
+                    child: Center(
+                      child: Text(
+                        existingPassword == null ? "UPLOAD_TO_ENCRYPTED_CORE" : "COMMIT_CHANGES",
+                        style: const TextStyle(color: Colors.black, fontSize: 13, letterSpacing: 1),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 20),
-            ],
+                const SizedBox(height: 30),
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildCyberInput({
+    required TextEditingController controller, 
+    required String label, 
+    required IconData icon, 
+    int maxLines = 1,
+    bool isPassword = false,
+    Widget? suffix
+  }) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      style: const TextStyle(color: Colors.white, fontFamily: 'monospace', fontSize: 14),
+      decoration: InputDecoration(
+        prefixIcon: Icon(icon, color: const Color(0xFF00FBFF).withOpacity(0.5), size: 20),
+        suffixIcon: suffix,
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.white30, fontSize: 12, letterSpacing: 1),
+        filled: true,
+        fillColor: const Color(0xFF16161D),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.white10),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF00FBFF), width: 1),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
     );
   }
@@ -2222,431 +2304,261 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final masterKeyBytes = widget.masterKey;
 
     Future<List<Map<String, dynamic>>> loadCodes() async {
-      return await db.query('recovery_codes', where: 'account_id = ?', whereArgs: [accountId]);
+      return await db.query('recovery_codes', 
+        where: 'account_id = ?', 
+        whereArgs: [accountId],
+        orderBy: 'is_used ASC, created_at DESC'
+      );
     }
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0A0A0E),
+      backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-        side: BorderSide(color: Color(0xFFFF00FF), width: 1),
-      ),
       builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => SafeArea(
-          child: Container(
-            padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: MediaQuery.of(context).viewInsets.bottom + 16),
-            height: MediaQuery.of(context).size.height * 0.6,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text("> EMERGENCY_CODES: $platform",
-                          style: const TextStyle(color: Color(0xFFFF00FF), fontFamily: 'monospace', fontWeight: FontWeight.bold, fontSize: 13)),
+        builder: (context, setModalState) => Container(
+          height: MediaQuery.of(context).size.height * 0.75,
+          decoration: BoxDecoration(
+            color: const Color(0xFF0D0D12),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: const Color(0xFFFF00FF).withOpacity(0.3), width: 1),
+            boxShadow: [
+              BoxShadow(color: const Color(0xFFFF00FF).withOpacity(0.1), blurRadius: 30, spreadRadius: 5),
+            ],
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 15),
+                      width: 40, height: 4,
+                      decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(2)),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.security_update, color: Color(0xFF00FBFF), size: 18),
-                      tooltip: "ENCRYPT_OLD_CODES",
-                      onPressed: () async {
-                        showDialog(
-                          context: context,
-                          barrierDismissible: false,
-                          builder: (context) => const Center(
-                            child: CircularProgressIndicator(color: Color(0xFF00FBFF)),
-                          ),
-                        );
-
-                        try {
-                          final codes = await db.query('recovery_codes', where: 'account_id = ?', whereArgs: [accountId]);
-                          final masterKeyString = widget.masterKey;
-                          int encrypted = 0;
-                          int alreadyEncrypted = 0;
-                          
-                          for (var code in codes) {
-                            final rawCode = code['code'];
-                            
-                            if (rawCode == null || rawCode is! String) {
-                              continue;
-                            }
-
-                            bool looksEncrypted = rawCode.contains('U2FsdGVk') || 
-                                                  rawCode.length > 50 ||
-                                                  !RegExp(r'^[A-Za-z0-9\-]+$').hasMatch(rawCode);
-                            
-                            if (!looksEncrypted) {
-                              try {
-                                final encryptedCode = EncryptionService.encrypt(rawCode, masterKeyString);
-                                await db.update(
-                                  'recovery_codes',
-                                  {'code': encryptedCode},
-                                  where: 'id = ?',
-                                  whereArgs: [code['id']],
-                                );
-                                encrypted++;
-                              } catch (e) {
-                                //
-                              }
-                            } else {
-                              alreadyEncrypted++;
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF00FF).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFF00FF).withOpacity(0.2)),
+                        ),
+                        child: const Icon(Icons.security, color: Color(0xFFFF00FF), size: 22),
+                      ),
+                      const SizedBox(width: 15),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("ENCRYPTED_VAULT", 
+                              style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 9, letterSpacing: 2, fontFamily: 'monospace')),
+                            Text(platform.toUpperCase(), 
+                              style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: "RE-ENCRYPT_ALL",
+                        icon: const Icon(Icons.sync_lock_rounded, color: Color(0xFF00FBFF)),
+                        onPressed: () async {
+                          final allCodes = await loadCodes();
+                          int count = 0;
+                          for (var c in allCodes) {
+                            if (!(c['code'] as String).contains('.')) {
+                              final enc = EncryptionService.encrypt(c['code'], widget.masterKey);
+                              await db.update('recovery_codes', {'code': enc}, where: 'id = ?', whereArgs: [c['id']]);
+                              count++;
                             }
                           }
-                          if (context.mounted) Navigator.pop(context);
                           setModalState(() {});
-                          if (context.mounted) {
-                            String message;
-                            Color bgColor;
-                            
-                            if (encrypted > 0) {
-                              message = '✓ $encrypted CODES_ENCRYPTED';
-                              bgColor = const Color(0xFF00FF00);
-                            } else if (alreadyEncrypted > 0) {
-                              message = '✓ ALL_CODES_ALREADY_ENCRYPTED ($alreadyEncrypted)';
-                              bgColor = const Color(0xFF00FBFF);
-                            } else {
-                              message = 'NO_CODES_FOUND';
-                              bgColor = Colors.orange;
-                            }
-                            
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(message),
-                                backgroundColor: bgColor,
-                                behavior: SnackBarBehavior.floating,
-                                duration: const Duration(seconds: 2),
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted) Navigator.pop(context);
-                          
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('ENCRYPTION_ERROR: $e'),
-                                backgroundColor: Colors.red,
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          }
-                        }
-                      },
-                    ),
-                  ],
-                ),
-                const Divider(color: Colors.white10, height: 20),
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text("> $count NODES_SECURED"), backgroundColor: const Color(0xFF00FBFF), behavior: SnackBarBehavior.floating)
+                          );
+                        },
+                      ),
+                    ],
+                  ),
 
-                Expanded(
-                  child: FutureBuilder<List<Map<String, dynamic>>>(
-                    future: loadCodes(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                        return const Center(child: Text("NO_CODES_IMPORTED", style: TextStyle(color: Colors.white24, fontSize: 10)));
-                      }
-                      return ListView.builder(
-                        itemCount: snapshot.data!.length,
-                        itemBuilder: (context, i) {
-                          final codeEntry = snapshot.data![i];
-                          final String rawCode = codeEntry['code'] ?? "";
-                          final bool isUsed = codeEntry['is_used'] == 1;
+                  const SizedBox(height: 20),
 
-                          final bool isEncryptedFormat = rawCode.contains('.');
-                          String displayCode = rawCode;
-                          bool isDecryptionError = false;
-
-                          if (isEncryptedFormat) {
-                            try {
-                              displayCode = EncryptionService.decrypt(
-                                combinedText: rawCode,
-                                masterKeyBytes: masterKeyBytes,
-                              );
-                              if (displayCode.startsWith("ERROR:")) {
-                                isDecryptionError = true;
-                              }
-                            } catch (e) {
-                              isDecryptionError = true;
-                              displayCode = "DECRYPTION_ERROR";
-                            }
-                          }
-                          
-                          return ListTile(
-                          dense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                          leading: Icon(
-                            isEncryptedFormat ? Icons.lock : Icons.lock_open,
-                            color: isDecryptionError ? Colors.red : (isEncryptedFormat ? const Color(0xFF00FF00) : Colors.orange),
-                            size: 16,
-                          ),
-                          title: Text(
-                            isDecryptionError ? "!!! DECRYPTION_ERROR !!!" : displayCode,
-                            style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 13,
-                              color: isUsed ? Colors.white24 : (isDecryptionError ? Colors.red : Colors.white),
-                              decoration: isUsed ? TextDecoration.lineThrough : null,
-                            ),
-                          ),
-                          subtitle: !isEncryptedFormat 
-                            ? const Text('NOT_ENCRYPTED - Tap migrate button above', style: TextStyle(color: Colors.orange, fontSize: 9)) 
-                            : null,
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (!isDecryptionError)
-                                IconButton(
-                                  icon: const Icon(Icons.copy, color: Color(0xFF00FBFF), size: 18),
-                                  onPressed: () => Clipboard.setData(ClipboardData(text: displayCode)),
-                                ),
-                              Checkbox(
-                                activeColor: const Color(0xFFFF00FF),
-                                value: isUsed,
-                                onChanged: (val) async {
-                                  await db.update('recovery_codes', {'is_used': val! ? 1 : 0}, where: 'id = ?', whereArgs: [codeEntry['id']]);
-                                  setModalState(() {});
-                                },
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                                  tooltip: "DELETE_NODE",
-                                  onPressed: () async {
-                                    bool? confirmDelete = await showDialog<bool>(
-                                      context: context,
-                                      builder: (context) => AlertDialog(
-                                        backgroundColor: const Color(0xFF0A0A0E),
-                                        shape: RoundedRectangleBorder(
-                                          side: const BorderSide(color: Colors.red, width: 1),
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        title: const Text(
-                                          '> CONFIRM_DELETE',
-                                          style: TextStyle(color: Colors.red, fontFamily: 'monospace', fontSize: 14),
-                                        ),
-                                        content: Text(
-                                          'Delete recovery code?${!displayCode.contains('ERROR') ? '\n\n$displayCode' : ''}',
-                                          style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                        ),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () => Navigator.pop(context, false),
-                                            child: const Text('CANCEL'),
-                                          ),
-                                          ElevatedButton(
-                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                                            onPressed: () => Navigator.pop(context, true),
-                                            child: const Text('DELETE', style: TextStyle(fontWeight: FontWeight.bold)),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-
-                                    if (confirmDelete == true) {
-                                      await db.delete(
-                                          'recovery_codes',
-                                          where: 'id = ?',
-                                          whereArgs: [codeEntry['id']]
-                                      );
-                                      setModalState(() {});
-                                      
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('RECOVERY_CODE_DELETED'),
-                                            backgroundColor: Colors.red,
-                                            duration: Duration(seconds: 1),
-                                            behavior: SnackBarBehavior.floating,
-                                          ),
-                                        );
-                                      }
-                                    }
-                                  },
-                                ),
+                  Expanded(
+                    child: FutureBuilder<List<Map<String, dynamic>>>(
+                      future: loadCodes(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                          return Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.terminal_rounded, color: Colors.white.withOpacity(0.03), size: 80),
+                                const Text("NO_RECOVERY_DATA_DETECTED", style: TextStyle(color: Colors.white24, fontFamily: 'monospace', fontSize: 12)),
                               ],
                             ),
                           );
-                        },
-                      );
-                    },
-                  ),
-                ),
+                        }
 
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF16161D),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    icon: const Icon(Icons.file_upload, color: Color(0xFF00FBFF)),
-                    label: const Text("IMPORT_TXT_FROM_STORAGE", 
-                                     style: TextStyle(color: Colors.white, fontSize: 11)),
-                    onPressed: () async {
-                      final security = SecurityController();
-                      security.pauseLocking();
-
-                      try {
-                        FilePickerResult? result = await FilePicker.platform.pickFiles(
-                          type: FileType.custom,
-                          allowedExtensions: ['txt'],
-                        );
-
-                        security.resumeLocking();
-
-                        if (result != null && result.files.single.path != null) {
-                          final file = File(result.files.single.path!);
-                          final List<String> lines = await file.readAsLines();
-                          List<String> codes = [];
-
-                          for (String line in lines) {
-                            String cleanLine = line.trim();
-                            if (cleanLine.isEmpty ||
-                                cleanLine.contains("==") ||
-                                cleanLine.toLowerCase().contains("backup codes") ||
-                                cleanLine.toLowerCase().contains("generated:") ||
-                                cleanLine.toLowerCase().contains("keep these") ||
-                                cleanLine.toLowerCase().contains("used once")) {
-                              continue;
+                        return ListView.separated(
+                          itemCount: snapshot.data!.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                          itemBuilder: (context, i) {
+                            final item = snapshot.data![i];
+                            final String raw = item['code'] ?? "";
+                            final bool isUsed = item['is_used'] == 1;
+                            final bool isEnc = raw.contains('.');
+                            
+                            String display;
+                            bool error = false;
+                            if (isEnc) {
+                              try {
+                                display = EncryptionService.decrypt(combinedText: raw, masterKeyBytes: masterKeyBytes);
+                              } catch (e) { display = "DECRYPT_ERROR"; error = true; }
+                            } else {
+                              display = raw;
                             }
-                            if (cleanLine.length >= 6 && !cleanLine.contains(" ")) {
-                              codes.add(cleanLine);
-                            }
-                          }
 
-                          if (codes.isNotEmpty) {
-                            bool? confirm = await showDialog<bool>(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                backgroundColor: const Color(0xFF0A0A0E),
-                                shape: RoundedRectangleBorder(
-                                  side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
-                                  borderRadius: BorderRadius.circular(8),
+                            return Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF16161D),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isUsed ? Colors.white10 : (error ? Colors.red.withOpacity(0.5) : (isEnc ? const Color(0xFF00FF00).withOpacity(0.2) : Colors.orange.withOpacity(0.3))),
                                 ),
-                                title: const Text("> NODES_DETECTED", 
-                                               style: TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace', fontSize: 16)),
-                                content: SingleChildScrollView(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '${codes.length} recovery codes found:',
-                                        style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                      ),
-                                      const SizedBox(height: 10),
-                                      Container(
-                                        padding: const EdgeInsets.all(10),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF16161D),
-                                          borderRadius: BorderRadius.circular(4),
-                                          border: Border.all(color: Colors.white10),
-                                        ),
-                                        constraints: const BoxConstraints(maxHeight: 200),
-                                        child: SingleChildScrollView(
-                                          child: Text(
-                                            codes.join("\n"), 
-                                            style: const TextStyle(
-                                              color: Colors.white70, 
-                                              fontFamily: 'monospace',
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 15),
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF00FBFF).withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(4),
-                                          border: Border.all(color: const Color(0xFF00FBFF).withOpacity(0.3)),
-                                        ),
-                                        child: const Row(
-                                          children: [
-                                            Icon(Icons.lock, color: Color(0xFF00FBFF), size: 16),
-                                            SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                'Codes will be encrypted with AES-256',
-                                                style: TextStyle(color: Color(0xFF00FBFF), fontSize: 10),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
+                              ),
+                              child: ListTile(
+                                dense: true,
+                                leading: Icon(
+                                  isUsed ? Icons.check_circle_outline : (isEnc ? Icons.lock_outline : Icons.no_encryption_gmailerrorred_outlined),
+                                  color: isUsed ? Colors.white24 : (error ? Colors.red : (isEnc ? const Color(0xFF00FF00) : Colors.orange)),
+                                ),
+                                title: Text(
+                                  display,
+                                  style: TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 14,
+                                    color: isUsed ? Colors.white24 : (error ? Colors.red : Colors.white),
+                                    decoration: isUsed ? TextDecoration.lineThrough : null,
+                                    letterSpacing: 1.1
                                   ),
                                 ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context, false), 
-                                    child: const Text("CANCEL", style: TextStyle(color: Colors.white54))
-                                  ),
-                                  ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF00FBFF),
-                                      foregroundColor: Colors.black,
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (!error) IconButton(
+                                      icon: const Icon(Icons.copy_all_rounded, color: Color(0xFF00FBFF), size: 20),
+                                      onPressed: () => Clipboard.setData(ClipboardData(text: display)),
                                     ),
-                                    onPressed: () => Navigator.pop(context, true), 
-                                    child: const Text("IMPORT_ENCRYPTED", style: TextStyle(fontWeight: FontWeight.bold))
-                                  ),
-                                ],
+                                    Checkbox(
+                                      activeColor: const Color(0xFFFF00FF),
+                                      value: isUsed,
+                                      onChanged: (v) async {
+                                        await db.update('recovery_codes', {'is_used': v! ? 1 : 0}, where: 'id = ?', whereArgs: [item['id']]);
+                                        setModalState(() {});
+                                      },
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                                      onPressed: () async {
+                                        await db.delete('recovery_codes', where: 'id = ?', whereArgs: [item['id']]);
+                                        setModalState(() {});
+                                      },
+                                    ),
+                                  ],
+                                ),
                               ),
                             );
+                          },
+                        );
+                      },
+                    ),
+                  ),
 
-                            if (confirm == true) {
-                              final db = await DBHelper.database;
-                              
-                              for (var codeStr in codes) {
-                                final encryptedCode = EncryptionService.encrypt(codeStr, widget.masterKey);
-                                
-                                await db.insert('recovery_codes', {
-                                  'account_id': accountId,
-                                  'code': encryptedCode,
-                                  'is_used': 0,
-                                  'created_at': DateTime.now().toIso8601String(),
-                                });
-                              }
+                  const SizedBox(height: 15),
 
-                              if (await file.exists()) await file.delete();
-                              
-                              setModalState(() {});
-                              
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text("> ${codes.length} CODES_SECURED_AND_ENCRYPTED"),
-                                    backgroundColor: const Color(0xFF00FBFF),
-                                    behavior: SnackBarBehavior.floating,
-                                    duration: const Duration(seconds: 2),
-                                  ),
-                                );
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(15),
+                      gradient: LinearGradient(
+                        colors: [const Color(0xFF00FBFF).withOpacity(0.1), Colors.transparent],
+                      ),
+                      border: Border.all(color: const Color(0xFF00FBFF).withOpacity(0.4)),
+                    ),
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                      ),
+                      icon: const Icon(Icons.file_upload_outlined, color: Color(0xFF00FBFF)),
+                      label: const Text("IMPORT_ENCRYPTED_STREAM", 
+                        style: TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+                      onPressed: () async {
+                        final security = SecurityController(); 
+                        security.pauseLocking();
+
+                        try {
+                          FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['txt']);
+                          security.resumeLocking();
+
+                          if (result != null && result.files.single.path != null) {
+                            final file = File(result.files.single.path!);
+                            final lines = await file.readAsLines();
+                            List<String> detectedCodes = [];
+
+                            for (var line in lines) {
+                              String clean = line.trim();
+                              if (clean.length >= 6 && !clean.contains(" ") && !clean.contains("=")) {
+                                detectedCodes.add(clean);
                               }
                             }
-                          } else {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('NO_VALID_CODES_FOUND_IN_FILE'),
-                                  backgroundColor: Colors.orange,
-                                  behavior: SnackBarBehavior.floating,
+
+                            if (detectedCodes.isNotEmpty && context.mounted) {
+                              bool? confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (c) => AlertDialog(
+                                  backgroundColor: const Color(0xFF0D0D12),
+                                  shape: RoundedRectangleBorder(side: const BorderSide(color: Color(0xFF00FBFF)), borderRadius: BorderRadius.circular(15)),
+                                  title: const Text("> INCOMING_DATA", style: TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace')),
+                                  content: Text("Found ${detectedCodes.length} codes. Import and encrypt now?", style: const TextStyle(color: Colors.white70)),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("ABORT", style: TextStyle(color: Colors.white38))),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00FBFF)),
+                                      onPressed: () => Navigator.pop(c, true),
+                                      child: const Text("EXECUTE", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                                    ),
+                                  ],
                                 ),
                               );
+
+                              if (confirm == true) {
+                                for (var code in detectedCodes) {
+                                  final encrypted = EncryptionService.encrypt(code, widget.masterKey);
+                                  await db.insert('recovery_codes', {
+                                    'account_id': accountId,
+                                    'code': encrypted,
+                                    'is_used': 0,
+                                    'created_at': DateTime.now().toIso8601String(),
+                                  });
+                                }
+                                setModalState(() {});
+                              }
                             }
                           }
+                        } catch (e) {
+                          security.resumeLocking();
                         }
-                      } catch (e) {
-                        security.resumeLocking();
-                        if (context.mounted) {
-                          _showErrorSnackBar("> SYSTEM_ERROR: $e");
-                        }
-                      }
-                    },
+                      },
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -2844,6 +2756,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         ),
 
+        floatingActionButtonLocation: FloatingActionButtonLocation.startDocked,
+
         floatingActionButton: _buildTabSpecificFab(),
       ),
     );
@@ -2946,340 +2860,190 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Widget _buildMetaChip(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: const Color(0xFF00FBFF).withOpacity(0.15),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(
-          color: const Color(0xFF00FBFF).withOpacity(0.3),
-        ),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Color(0xFF00FBFF),
-          fontSize: 9,
-          fontWeight: FontWeight.bold,
-        ),
+  Widget _buildPasswordList() {
+  if (_passwords.isEmpty) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.lock_outline_rounded, size: 100, color: Colors.white.withOpacity(0.05)),
+          const SizedBox(height: 24),
+          const Text("> NO_DATA_DETECTED", 
+            style: TextStyle(color: Color(0xFF00FBFF), fontSize: 14, letterSpacing: 2, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          const Text("INITIALIZE_DATABASE_BY_TAPPING_+", 
+            style: TextStyle(color: Colors.white24, fontSize: 10, letterSpacing: 1)),
+        ],
       ),
     );
   }
 
-  Widget _buildPasswordList() {
-    if (_passwords.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lock_open, size: 80, color: Colors.white.withOpacity(0.1)),
-            const SizedBox(height: 20),
-            const Text("> NO_DATA_DETECTED", 
-                       style: TextStyle(color: Colors.grey, fontSize: 14, letterSpacing: 1)),
-            const SizedBox(height: 10),
-            const Text("TAP + TO ADD YOUR FIRST PASSWORD", 
-                       style: TextStyle(color: Colors.white24, fontSize: 10)),
+  return ListView.builder(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+    itemCount: _passwords.length,
+    itemBuilder: (context, index) {
+      final item = _passwords[index];
+
+      final int secondsPassed = (DateTime.now().millisecondsSinceEpoch ~/ 1000) % 30;
+      final double progress = (30 - secondsPassed) / 30;
+      final Color progressColor = progress > 0.3 ? const Color(0xFF00FBFF) : Colors.redAccent;
+
+      final Map<String, Color> catColors = {
+        'WORK': const Color(0xFFFF00FF),
+        'FINANCE': const Color(0xFF00FF00),
+        'SOCIAL': const Color(0xFFFFFF00),
+      };
+      final Color categoryColor = catColors[item.category] ?? const Color(0xFF00FBFF);
+
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF16161D),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: categoryColor.withOpacity(0.15),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.4),
+              blurRadius: 10,
+              offset: const Offset(0, 6),
+            ),
           ],
         ),
-      );
-    }
-    
-    return ListView.builder(
-      padding: const EdgeInsets.all(10),
-      itemCount: _passwords.length,
-      itemBuilder: (context, index) {
-        final item = _passwords[index];
-        int secondsPassed = (DateTime.now().millisecondsSinceEpoch ~/ 1000) % 30;
-        double progress = (30 - secondsPassed) / 30;
-        Color progressColor = progress > 0.3 ? const Color(0xFF00FBFF) : Colors.red;
-
-        Color categoryColor = const Color(0xFF00FBFF);
-        switch (item.category) {
-          case 'WORK':
-            categoryColor = const Color(0xFFFF00FF);
-            break;
-          case 'FINANCE':
-            categoryColor = const Color(0xFF00FF00);
-            break;
-          case 'SOCIAL':
-            categoryColor = const Color(0xFFFFFF00);
-            break;
-        }
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF16161D),
-            border: Border(left: BorderSide(color: categoryColor, width: 4)),
-            borderRadius: BorderRadius.circular(4),
-          ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
           child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),            
+            contentPadding: const EdgeInsets.all(12),
             leading: Container(
-              width: 48,
-              height: 48,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
-                color: categoryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: categoryColor.withOpacity(0.3),
-                  width: 1,
-                ),
+                color: categoryColor.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: categoryColor.withOpacity(0.2)),
               ),
               child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  Center(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: Image.network(
-                        item.faviconUrl,
-                        width: 32,
-                        height: 32,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Icon(
-                            _getCategoryIcon(item.category),
-                            color: categoryColor,
-                            size: 28,
-                          );
-                        },
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Center(
-                            child: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                color: categoryColor,
-                                strokeWidth: 2,
-                                value: loadingProgress.expectedTotalBytes != null
-                                  ? loadingProgress.cumulativeBytesLoaded / 
-                                    loadingProgress.expectedTotalBytes!
-                                  : null,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      item.faviconUrl,
+                      width: 30, height: 30,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Icon(_getCategoryIcon(item.category), color: categoryColor, size: 24),
                     ),
                   ),
                   if (item.isFavorite)
                     Positioned(
-                      top: 0,
-                      right: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF0A0A0E),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.star,
-                          color: Color(0xFFFFFF00),
-                          size: 12,
-                        ),
-                      ),
-                    ),
-                  if (item.isTravelSafe)
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF0A0A0E),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.flight_takeoff,
-                          color: Color(0xFF00FBFF),
-                          size: 10,
-                        ),
-                      ),
+                      top: 2, right: 2,
+                      child: Icon(Icons.star, color: Colors.yellow, size: 10),
                     ),
                 ],
               ),
             ),
-            
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    item.platform.toUpperCase(),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                      color: Colors.white,
-                      fontSize: 14,
+            title: Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.platform.toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13,
+                        letterSpacing: 1.2,
+                      ),
                     ),
                   ),
-                ),
-                if (item.passwordHistory != null && item.passwordHistory!.isNotEmpty)
-                  IconButton(
-                    icon: const Icon(Icons.history, color: Colors.white54, size: 16),
-                    iconSize: 16,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    tooltip: "PASSWORD_HISTORY",
-                    onPressed: () => _showPasswordHistory(item),
-                  ),
-              ],
+                  if (item.isTravelSafe)
+                    const Icon(Icons.shield_rounded, color: Color(0xFF00FBFF), size: 14),
+                ],
+              ),
             ),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  item.username, 
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.5), 
-                    fontSize: 12
-                  )
+                  item.username,
+                  style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12, fontFamily: 'monospace'),
                 ),
-                if (item.createdAt != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Created: ${_formatDate(item.createdAt!)}',
-                    style: const TextStyle(color: Colors.white24, fontSize: 9),
-                  ),
-                ],
-                if (item.otpSeed != null && item.otpSeed!.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Builder(
-                    builder: (_) {
-                      final secretPlain = _getTotpSecretPlainCached(item);
-                      final meta = _getTotpMetaOrDefault(item);
-                      final algo = _mapAlgorithm(meta.algorithm);
 
-                      String codeFormatted = "OTP_ERR";
-
-                      if (secretPlain != null) {
-                        try {
-                          final code = OTP.generateTOTPCodeString(
-                            secretPlain,
-                            _totpNowMs,
-                            interval: meta.period,
-                            length: meta.digits,
-                            algorithm: algo,
-                            isGoogle: true,
-                          );
-
-                          codeFormatted = code.replaceAllMapped(
-                            RegExp(r".{3}"),
-                            (m) => "${m.group(0)} ",
-                          );
-                        } catch (_) {}
-                      }
-
-                      return Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF00FBFF).withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: const Color(0xFF00FBFF).withOpacity(0.3),
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                if (item.otpSeed?.isNotEmpty ?? false) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black26,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.security,
-                                  size: 14,
-                                  color: Color(0xFF00FBFF),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    meta.issuer ?? "TWO_FACTOR_AUTH",
-                                    style: const TextStyle(
-                                      color: Color(0xFF00FBFF),
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 1,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-
-                            const SizedBox(height: 6),
-                            Center(
-                              child: InkWell(
-                                onTap: () {
-                                  if (secretPlain == null) return;
-                                  Clipboard.setData(
-                                    ClipboardData(
-                                      text: codeFormatted.replaceAll(" ", ""),
-                                    ),
-                                  );
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('TOTP_COPIED_TO_CLIPBOARD'),
-                                      backgroundColor: Color(0xFF00FBFF),
-                                      duration: Duration(seconds: 1),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
-                                },
-                                borderRadius: BorderRadius.circular(4),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 4),
-                                  child: Text(
-                                    codeFormatted,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Color(0xFF00FBFF),
-                                      fontFamily: 'monospace',
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 18,
-                                      letterSpacing: 3,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 4,
-                              children: [
-                                _buildMetaChip("${meta.digits}D"),
-                                _buildMetaChip("${meta.period}s"),
-                                _buildMetaChip(meta.algorithm),
-                              ],
-                            ),
-
-                            const SizedBox(height: 6),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 3,
-                              child: LinearProgressIndicator(
-                                value: progress,
-                                backgroundColor: Colors.white10,
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(progressColor),
-                              ),
+                            const Icon(Icons.fingerprint, size: 12, color: Color(0xFF00FBFF)),
+                            Text(
+                              "SECURE_TOKEN",
+                              style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 8, letterSpacing: 1),
                             ),
                           ],
                         ),
-                      );
-                    },
+                        const SizedBox(height: 4),
+                        Builder(builder: (context) {
+                          String code = "------";
+                          try {
+                            final secret = _getTotpSecretPlainCached(item);
+                            final meta = _getTotpMetaOrDefault(item);
+                            if (secret != null) {
+                              code = OTP.generateTOTPCodeString(
+                                secret, _totpNowMs,
+                                interval: meta.period,
+                                length: meta.digits,
+                                algorithm: _mapAlgorithm(meta.algorithm),
+                                isGoogle: true,
+                              ).replaceAllMapped(RegExp(r".{3}"), (m) => "${m.group(0)} ");
+                            }
+                          } catch (_) {}
+                          
+                          return Text(
+                            code,
+                            style: const TextStyle(
+                              color: Color(0xFF00FBFF),
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'monospace',
+                              letterSpacing: 2,
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            value: progress,
+                            minHeight: 2,
+                            backgroundColor: Colors.white.withOpacity(0.05),
+                            valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ]
+                ],
               ],
             ),
             trailing: PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
-              color: const Color(0xFF16161D),
+              icon: const Icon(Icons.more_vert, color: Colors.white38),
+              padding: EdgeInsets.zero,
+              color: const Color(0xFF1A1A23),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-                side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
+                borderRadius: BorderRadius.circular(12),
               ),
               onSelected: (value) async {
                 switch (value) {
@@ -3480,110 +3244,47 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 }
               },
               itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'favorite',
-                  child: Row(
-                    children: [
-                      Icon(
-                        item.isFavorite ? Icons.star : Icons.star_border,
-                        color: item.isFavorite ? const Color(0xFFFFFF00) : Colors.white54,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        item.isFavorite ? 'UNFAVORITE' : 'FAVORITE',
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
-                      ),
-                    ],
-                  ),
+                _buildPopupItem('view', Icons.remove_red_eye_outlined, 'VIEW_PASSWORD', color: const Color(0xFF00FBFF)),
+                _buildPopupItem('copy', Icons.copy_all_rounded, 'COPY_PASSWORD'),
+                const PopupMenuDivider(height: 1),
+                _buildPopupItem(
+                  'favorite', 
+                  item.isFavorite ? Icons.star : Icons.star_border, 
+                  item.isFavorite ? 'REMOVE_FAVORITE' : 'MARK_FAVORITE', 
+                  color: item.isFavorite ? Colors.yellow : Colors.white70
                 ),
-                const PopupMenuDivider(),
-                const PopupMenuItem(
-                  value: 'view',
-                  child: Row(
-                    children: [
-                      Icon(Icons.remove_red_eye, color: Color(0xFF00FBFF), size: 18),
-                      SizedBox(width: 12),
-                      Text('VIEW_PASSWORD', style: TextStyle(color: Colors.white, fontSize: 13)),
-                    ],
-                  ),
+                _buildPopupItem(
+                  'travel_safe', 
+                  Icons.flight_takeoff_rounded, 
+                  item.isTravelSafe ? 'DISABLE_TRAVEL_MODE' : 'ENABLE_TRAVEL_MODE',
+                  color: item.isTravelSafe ? const Color(0xFF00FBFF) : Colors.white70
                 ),
-                const PopupMenuItem(
-                  value: 'copy',
-                  child: Row(
-                    children: [
-                      Icon(Icons.copy, color: Color(0xFF00FBFF), size: 18),
-                      SizedBox(width: 12),
-                      Text('COPY_PASSWORD', style: TextStyle(color: Colors.white, fontSize: 13)),
-                    ],
-                  ),
-                ),
-                const PopupMenuDivider(),
-                const PopupMenuItem(
-                  value: 'recovery',
-                  child: Row(
-                    children: [
-                      Icon(Icons.emergency, color: Color(0xFFFF00FF), size: 18),
-                      SizedBox(width: 12),
-                      Text('RECOVERY_CODES', style: TextStyle(color: Colors.white, fontSize: 13)),
-                    ],
-                  ),
-                ),
+                const PopupMenuDivider(height: 1),
+                _buildPopupItem('recovery', Icons.emergency_rounded, 'RECOVERY_CODES', color: const Color(0xFFFF00FF)),
                 if (item.passwordHistory != null && item.passwordHistory!.isNotEmpty)
-                  const PopupMenuItem(
-                    value: 'history',
-                    child: Row(
-                      children: [
-                        Icon(Icons.history, color: Color(0xFF00FF00), size: 18),
-                        SizedBox(width: 12),
-                        Text('PASSWORD_HISTORY', style: TextStyle(color: Colors.white, fontSize: 13)),
-                      ],
-                    ),
-                  ),
-                const PopupMenuDivider(),
-                const PopupMenuItem(
-                  value: 'edit',
-                  child: Row(
-                    children: [
-                      Icon(Icons.edit, color: Color(0xFF00FBFF), size: 18),
-                      SizedBox(width: 12),
-                      Text('EDIT', style: TextStyle(color: Colors.white, fontSize: 13)),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'travel_safe',
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.flight_takeoff, 
-                        color: item.isTravelSafe ? const Color(0xFF00FBFF) : Colors.white54, 
-                        size: 18
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        item.isTravelSafe ? 'REMOVE_SAFE_TRAVEL' : 'MARK_SAFE_TRAVEL', 
-                        style: const TextStyle(color: Colors.white, fontSize: 13)
-                      ),
-                    ],
-                  ),
-                ),
-                const PopupMenuDivider(),
-                const PopupMenuItem(
-                  value: 'delete',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_forever, color: Colors.red, size: 18),
-                      SizedBox(width: 12),
-                      Text('DELETE', style: TextStyle(color: Colors.red, fontSize: 13)),
-                    ],
-                  ),
-                ),
+                  _buildPopupItem('history', Icons.history_rounded, 'VIEW_HISTORY', color: const Color(0xFF00FF00)),
+                const PopupMenuDivider(height: 1),
+                _buildPopupItem('edit', Icons.edit_note_rounded, 'EDIT_ENTRY'),
+                _buildPopupItem('delete', Icons.delete_forever_rounded, 'DELETE_NODE', color: Colors.redAccent),
               ],
             ),
           ),
-        );
-      },
+        ),
+      );
+    },
+  );
+}
+
+  PopupMenuItem<String> _buildPopupItem(String value, IconData icon, String text, {Color? color}) {
+    return PopupMenuItem(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, color: color ?? Colors.white70, size: 18),
+          const SizedBox(width: 12),
+          Text(text, style: TextStyle(color: color ?? Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+        ],
+      ),
     );
   }
 
@@ -3600,60 +3301,113 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final diff = now.difference(date);
-    
-    if (diff.inDays == 0) return 'Today';
-    if (diff.inDays == 1) return 'Yesterday';
-    if (diff.inDays < 7) return '${diff.inDays} days ago';
-    if (diff.inDays < 30) return '${(diff.inDays / 7).floor()} weeks ago';
-    if (diff.inDays < 365) return '${(diff.inDays / 30).floor()} months ago';
-    return '${(diff.inDays / 365).floor()} years ago';
-  }
-
   Widget _buildFabPasswords() {
     return FloatingActionButton(
       backgroundColor: const Color(0xFF00FBFF),
-      child: const Icon(Icons.add, color: Colors.black),
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: Colors.white24, width: 1),
+      ),
+      child: const Icon(Icons.add_rounded, color: Colors.black, size: 28),
       onPressed: () {
         _onUserInteraction();
         showModalBottomSheet(
           context: context,
-          backgroundColor: const Color(0xFF0A0A0E),
+          backgroundColor: Colors.transparent, // Transparente para usar el diseño custom
           isScrollControlled: true,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(15)),
-            side: BorderSide(color: Color(0xFF00FBFF), width: 1),
-          ),
-          builder: (context) => SafeArea(
-            child: Container(
-              padding: EdgeInsets.only(top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 10),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+          builder: (context) => Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF0D0D12),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+              border: Border.all(color: const Color(0xFF00FBFF).withOpacity(0.2), width: 1),
+            ),
+            padding: EdgeInsets.fromLTRB(24, 12, 24, MediaQuery.of(context).viewInsets.bottom + 30),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(10)),
+                ),
+                const SizedBox(height: 25),
+                Row(
                   children: [
-                    ListTile(
-                      leading: const Icon(Icons.password, color: Color(0xFF00FBFF)),
-                      title: const Text("ADD_NEW_PASSWORD", 
-                                       style: TextStyle(color: Colors.white, letterSpacing: 1)),
-                      onTap: () { Navigator.pop(context); _showForm(); },
-                    ),
-                    const Divider(color: Colors.white10),
-                    ListTile(
-                      leading: const Icon(Icons.qr_code_scanner, color: Color(0xFFFF00FF)),
-                      title: const Text("SCAN_QR_2FA", 
-                                       style: TextStyle(color: Colors.white, letterSpacing: 1)),
-                      onTap: () { Navigator.pop(context); _scanQR2FA(); },
-                    ),
-                    const SizedBox(height: 10),
+                    const Text("SYSTEM_ACTIONS", 
+                      style: TextStyle(color: Color(0xFF00FBFF), fontSize: 12, letterSpacing: 3, fontFamily: 'monospace')),
+                    const Spacer(),
+                    Icon(Icons.terminal, color: Colors.white.withOpacity(0.2), size: 16),
                   ],
                 ),
-              ),
+                const SizedBox(height: 20),
+
+                _buildActionTile(
+                  icon: Icons.vpn_key_rounded,
+                  label: "ADD_NEW_PASSWORD",
+                  description: "Encrypt and store a new credential",
+                  color: const Color(0xFF00FBFF),
+                  onTap: () { Navigator.pop(context); _showForm(); },
+                ),
+
+                const SizedBox(height: 12),
+
+                _buildActionTile(
+                  icon: Icons.qr_code_scanner_rounded,
+                  label: "SCAN_QR_2FA",
+                  description: "Link a new biometric MFA node",
+                  color: const Color(0xFFFF00FF),
+                  onTap: () { Navigator.pop(context); _scanQR2FA(); },
+                ),
+              ],
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildActionTile({
+    required IconData icon, 
+    required String label, 
+    required String description, 
+    required Color color, 
+    required VoidCallback onTap
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: color.withOpacity(0.2), width: 1),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, 
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15, letterSpacing: 0.5)),
+                  Text(description, 
+                    style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: color.withOpacity(0.5)),
+          ],
+        ),
+      ),
     );
   }
 }
