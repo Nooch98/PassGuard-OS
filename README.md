@@ -68,6 +68,7 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 | Argon2id | Memory-hard KDF (64MB, 3 iterations) |
 | PBKDF2 | Legacy support with 200,000 iterations for backward compatibility |
 | AES-256-GCM | Authenticated encryption for all stored data (Confidentiality + Integrity) |
+| Stealth Protocol | Travel Mode: Hide specific sensitive nodes on demand |
 | Secure Byte Handling | Use of `Uint8List` instead of `String` for cryptographic operations |
 | Biometric Lock | Fingerprint(recomended)/Face ID support (Android) |
 | Auto-Lock | Configurable session timeout (1-30 min) |
@@ -78,8 +79,17 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 | Isolate Computing | Offloads decryption and audit tasks to a separate CPU thread to prevent memory-sniffing on the main thread during idle. |
 | Brute-Force Estimator | Real-time calculation of "Time-to-Crack" based on 100 GH/s attack vectors. |
 
+### Stealth Protocol (Travel Mode)
+PassGuard OS implements a **Plausible Deniability** layer through its Stealth Protocol. Unlike standard "Travel Modes" that show only what is marked, our logic is **Inverted for maximum discretion**:
+
+* **Flag to Hide:** You mark specific highly sensitive accounts (Bank, Crypto, Admin) as "Travel Sensitive".
+* **One-Tap Vanish:** When Stealth Protocol is activated via the Master Key, all marked accounts are completely de-indexed from the database view.
+* **Clean Audit:** The Dashboard automatically recalculates your Health Score ignoring the hidden accounts. To an outside observer (e.g., a border inspection), the vault appears complete and healthy.
+* **Secure Deactivation:** Returning to "Full Vault" mode requires a re-validation of your Master Password to prevent unauthorized access if the device is snatched while unlocked.
+
 ### Password Health Dashboard
 Keep your security under control with a real-time analysis of your vault:
+* **Context-Aware Scoring:** If **Stealth Protocol** is active, the engine only audits visible nodes. Your "Integrity Index" stays accurate to what is currently on screen.
 * **Multi-Threaded Audit:** Uses Dart Isolates (`compute`) to perform heavy cryptographic checks without freezing the UI.
 * **Brute-Force Time Estimation:** Categorizes threats based on the actual time a modern GPU (100 GH/s) would take to crack the key.
 * **Breach Dictionary (RockYou):** Local SHA-1 prefix matching against known leaked databases.
@@ -500,6 +510,9 @@ PassGuard OS categorizes risks using a priority-queue logic, ensuring that the m
 4. 🟠 **WARNING: Keyboard Patterns**
    * **Finding:** Detection of predictable sequential patterns (e.g., `qwerty`, `asdfgh`, `123456`).
    * **Risk:** Even if the password is long, brute-force algorithms prioritize these patterns, making them significantly easier to crack than random strings.
+
+> [!TIP]
+> **Stealth Logic in Audits:** > When the Stealth Protocol is **ON**, accounts marked as sensitive are excluded from the `TOTAL_NODES` and `HEALTH_SCORE`. This ensures that even if your hidden accounts have weak passwords, they won't lower the visible score, maintaining your "Security Cover".
 
 > [!NOTE]
 > **Why am I seeing "Critical" for 8-character passwords?**
