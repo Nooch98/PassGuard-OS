@@ -74,6 +74,7 @@ class DashboardScreenState extends State<DashboardScreen> {
   Map<String, int> _categoryRisks = {};
   Set<String> _breachHashSet = {};
   RiskLevel? _selectedFilter;
+  double _animatedScore = 0.0;
 
   int _weakCount = 0, _medCount = 0, _strongCount = 0;
 
@@ -231,7 +232,9 @@ class DashboardScreenState extends State<DashboardScreen> {
         masterKeyBytes: masterKey,
       );
 
-      if (decrypted.isEmpty || decrypted.startsWith("ERROR:")) continue;
+      if (decrypted.isEmpty || decrypted.startsWith("ERROR:")) {
+        continue;
+      }
 
       analyzedCount++;
       double entropy = _staticCalculateEntropy(decrypted);
@@ -414,9 +417,26 @@ class DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 10),
             
             if (_filteredReports.isEmpty) 
-              _buildNoThreatsCard()
-            else 
-              ..._filteredReports.map((report) => _buildDetailedReportCard(report)),
+            _buildNoThreatsCard()
+          else 
+            ..._filteredReports.asMap().entries.map((entry) {
+              int index = entry.key;
+              AuditResult report = entry.value;
+              
+              return TweenAnimationBuilder<double>(
+                duration: Duration(milliseconds: 400 + (index * 100)),
+                tween: Tween(begin: 0.0, end: 1.0),
+                builder: (context, value, child) {
+                  return Transform.translate(
+                    offset: Offset(30 * (1 - value), 0),
+                    child: Opacity(
+                      opacity: value,
+                      child: _buildDetailedReportCard(report),
+                    ),
+                  );
+                },
+              );
+            }),
 
             if (_excludedCount > 0) ...[
               const SizedBox(height: 30),
@@ -519,39 +539,81 @@ class DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildAdvancedGauge() {
     Color statusColor = _healthScore > 80 ? const Color(0xFF00FF41) : (_healthScore > 50 ? Colors.orangeAccent : Colors.redAccent);
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [statusColor.withOpacity(0.1), Colors.transparent], begin: Alignment.topLeft),
-        color: const Color(0xFF0D0D12), 
-        border: Border.all(color: statusColor.withOpacity(0.2))
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Stack(
+      children: [
+        Positioned(
+          right: -20, top: -20,
+          child: AnimatedContainer(
+            duration: const Duration(seconds: 2),
+            width: 100, height: 100,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: statusColor.withOpacity(0.05),
+            ),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            gradient: LinearGradient(
+              colors: [statusColor.withOpacity(0.15), Colors.transparent],
+              begin: Alignment.topLeft,
+            ),
+            color: const Color(0xFF0D0D12), 
+            border: Border.all(color: statusColor.withOpacity(0.2))
+          ),
+          child: Column(
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text("${_healthScore.toInt()}%", style: TextStyle(color: statusColor, fontSize: 44, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-                  Text("OVERALL_INTEGRITY_STATUS", style: TextStyle(color: statusColor.withOpacity(0.5), fontSize: 8, letterSpacing: 1)),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "${_healthScore.toInt()}%",
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 44,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                          shadows: [Shadow(color: statusColor, blurRadius: 10)]
+                        )
+                      ),
+                      Text("OVERALL_INTEGRITY_STATUS", style: TextStyle(color: statusColor.withOpacity(0.5), fontSize: 8, letterSpacing: 1)),
+                    ],
+                  ),
+                  _buildRotatingShield(statusColor),
                 ],
               ),
-              TweenAnimationBuilder(
-                tween: Tween<double>(begin: 0, end: 1),
-                duration: const Duration(seconds: 2),
-                builder: (context, double value, child) => Opacity(
-                  opacity: value,
-                  child: Icon(Icons.shield_rounded, color: statusColor.withOpacity(0.2), size: 50),
+              const SizedBox(height: 15),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: LinearProgressIndicator(
+                  value: _healthScore / 100, 
+                  backgroundColor: Colors.white10, 
+                  color: statusColor, 
+                  minHeight: 4
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 15),
-          LinearProgressIndicator(value: _healthScore / 100, backgroundColor: Colors.white10, color: statusColor, minHeight: 2),
-        ],
-      ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRotatingShield(Color color) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 2 * math.pi),
+      duration: const Duration(seconds: 10),
+      builder: (context, value, child) {
+        return Transform.rotate(
+          angle: value,
+          child: Icon(Icons.shield_outlined, color: color.withOpacity(0.2), size: 50),
+        );
+      },
     );
   }
 
@@ -635,6 +697,9 @@ class DashboardScreenState extends State<DashboardScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(color: const Color(0xFF111118), border: Border(left: BorderSide(color: riskColor, width: 2))),
       child: ExpansionTile(
+        visualDensity: VisualDensity.compact,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+        backgroundColor: riskColor.withOpacity(0.03),
         iconColor: riskColor,
         collapsedIconColor: Colors.white24,
         title: Text(report.platform.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
@@ -690,11 +755,25 @@ class DashboardScreenState extends State<DashboardScreen> {
     return "IMPROVEMENT: Key structure is basic. Consider adding special characters and increasing length.";
   }
 
-  Widget _buildLoadingScreen() => Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-    const SizedBox(width: 60, child: LinearProgressIndicator(color: Color(0xFF00FBFF), backgroundColor: Colors.white10)),
-    const SizedBox(height: 20),
-    Text(_loadingStatus, style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 9, fontFamily: 'monospace')),
-  ]));
+  Widget _buildLoadingScreen() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 40, height: 40,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: const Color(0xFF00FBFF),
+              backgroundColor: Colors.white10,
+            ),
+          ),
+          const SizedBox(height: 25),
+          _LoadingText(text: _loadingStatus),
+        ],
+      ),
+    );
+  }
 
   Widget _buildSectionTitle(String title, IconData icon) => Row(children: [
     Icon(icon, color: const Color(0xFF00FBFF), size: 14),
@@ -808,6 +887,31 @@ class DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _LoadingText extends StatefulWidget {
+  final String text;
+  const _LoadingText({required this.text});
+  @override
+  State<_LoadingText> createState() => _LoadingTextState();
+}
+
+class _LoadingTextState extends State<_LoadingText> with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  @override
+  void initState() {
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 500))..repeat(reverse: true);
+    super.initState();
+  }
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _ctrl,
+      child: Text(widget.text, style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 9, fontFamily: 'monospace')),
     );
   }
 }
