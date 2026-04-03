@@ -1,3 +1,23 @@
+/*
+|--------------------------------------------------------------------------
+| PassGuard OS - AuthService
+|--------------------------------------------------------------------------
+| Description:
+|   Manages authentication logic and secure storage of master credentials.
+|
+| Responsibilities:
+|   - Store and verify master password (hashed + salted)
+|   - Manage panic password
+|   - Handle biometric key storage
+|   - Provide session configuration settings
+|
+| Security Notes:
+|   - Master password is NEVER stored
+|   - Only salted hash is persisted
+|   - Biometric storage uses secure OS keystore
+|--------------------------------------------------------------------------
+*/
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
@@ -20,7 +40,6 @@ class AuthService {
   static const String _sessionTimeoutKey = 'session_timeout_minutes';
   static const String _autoLockKey = 'auto_lock_enabled';
   static const String _screenshotProtectionKey = 'screenshot_protection';
-  
 
   static const FlutterSecureStorage _secure = FlutterSecureStorage();
 
@@ -31,8 +50,6 @@ class AuthService {
   static const IOSOptions _iOptions = IOSOptions(
     accessibility: KeychainAccessibility.first_unlock_this_device,
   );
-
-  static const LinuxOptions _lOptions = LinuxOptions();
 
   static Future<bool> isFirstTime() async {
     final prefs = await SharedPreferences.getInstance();
@@ -98,11 +115,11 @@ class AuthService {
       value: masterKey,
       aOptions: _aOptions,
       iOptions: _iOptions,
-      lOptions: _lOptions,
     );
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_bioEnabledKey, true);
+
     await prefs.remove(_bioKeyKey);
   }
 
@@ -130,7 +147,6 @@ class AuthService {
         key: _bioWrappedMasterKey,
         aOptions: _aOptions,
         iOptions: _iOptions,
-        lOptions: _lOptions,
       );
       if (v == null || v.isEmpty) return null;
       return v;
@@ -146,7 +162,6 @@ class AuthService {
       key: _bioWrappedMasterKey,
       aOptions: _aOptions,
       iOptions: _iOptions,
-      lOptions: _lOptions,
     );
   }
 
@@ -158,7 +173,6 @@ class AuthService {
       key: _bioWrappedMasterKey,
       aOptions: _aOptions,
       iOptions: _iOptions,
-      lOptions: _lOptions,
     );
   }
 
@@ -202,5 +216,15 @@ class AuthService {
 
     final salt = KeyDerivationService.saltFromString(saltString);
     return KeyDerivationService.deriveKey(masterPassword, salt);
+  }
+
+  static Future<bool> getTravelModeEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('travel_mode_active') ?? false;
+  }
+
+  static Future<void> setTravelModeEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('travel_mode_active', value);
   }
 }
