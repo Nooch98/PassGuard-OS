@@ -44,7 +44,7 @@ class DBHelper {
     
     return await openDatabase(
       path,
-      version: 8,
+      version: 9,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -91,6 +91,7 @@ class DBHelper {
       if (oldVersion < 6) await safeAddColumn('accounts', 'origin', 'TEXT');
       if (oldVersion < 7) await safeAddColumn('accounts', 'is_excluded', 'INTEGER DEFAULT 0');
       if (oldVersion < 8) await safeAddColumn('accounts', 'audit_cache', 'TEXT');
+      if (oldVersion < 9) await safeAddColumn('accounts', 'is_travel_safe', 'INTEGER DEFAULT 0');
     },
     );
   }
@@ -111,6 +112,7 @@ class DBHelper {
         last_used TEXT,
         notes TEXT,
         is_favorite INTEGER DEFAULT 0,
+        is_travel_safe INTEGER DEFAULT 0,
         password_history TEXT,
         otp_meta TEXT,
         is_excluded INTEGER DEFAULT 0,
