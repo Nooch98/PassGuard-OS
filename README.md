@@ -60,6 +60,9 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 * **✅ Open Source** - Audit the code yourself
 * **✅ No Subscriptions** - Free
 
+> [!IMPORTANT]
+> PassGuard OS aims to reduce risk through strong local cryptography and offline design, but it is **not professionally security audited** at this time.
+
 ## Features
 
 ### Security Features
@@ -88,17 +91,31 @@ PassGuard OS implements a **Plausible Deniability** layer through its Stealth Pr
 * **Secure Deactivation:** Returning to "Full Vault" mode requires a re-validation of your Master Password to prevent unauthorized access if the device is snatched while unlocked.
 
 ### Password Health Dashboard
-Keep your security under control with a real-time analysis of your vault:
-* **Context-Aware Scoring:** If **Stealth Protocol** is active, the engine only audits visible nodes. Your "Integrity Index" stays accurate to what is currently on screen.
-* **Multi-Threaded Audit:** Uses Dart Isolates (`compute`) to perform heavy cryptographic checks without freezing the UI.
-* **Brute-Force Time Estimation:** Categorizes threats based on the actual time a modern GPU (100 GH/s) would take to crack the key.
-* **Breach Dictionary (RockYou):** Local SHA-1 prefix matching against known leaked databases.
-* **Exclusion Manager:** Ability to ignore specific nodes (e.g., platform-limited passwords) to maintain a clean Health Score.
-* **Smart Cache:** Results are persisted in an `audit_cache` to provide instant dashboard loading on subsequent launches.
-* **Weak Password Detection:** Identifies credentials vulnerable to brute-force attacks.
-* **Reuse Detection:** Locates duplicate passwords across different services.
-* **Old Password Alerts:** Automatic notifications for credentials older than 90 days.
-* **Security Score:** A global rating (0-100) based on the overall robustness of your database.
+
+PassGuard OS includes a local password audit dashboard focused on practical vault hygiene.
+
+Current audit capabilities:
+
+- **Weak password detection** based on approximate entropy estimation
+- **Password reuse detection** across multiple accounts
+- **Known-breach detection** using a local SHA-1 prefix database
+- **Keyboard pattern detection** for common sequences such as `qwerty`, `asdfgh`, `zxcvbn`, `123456`, and `qazwsx`
+- **Manual exclusion system** for accounts that should be ignored in score calculations
+- **Cached results** stored in `audit_cache` for faster reloads
+- **Travel Mode-aware auditing**, where hidden travel-sensitive nodes are excluded from the visible report
+
+How the current dashboard works:
+
+- Passwords are decrypted locally during the audit
+- Heavy analysis runs in a separate isolate using `compute(...)`
+- Approximate entropy is calculated from detected character classes present in each password
+- A theoretical offline crack-time estimate is derived using a fixed benchmark of **100 GH/s** (`1e11` guesses/second)
+- The final Integrity Index is a penalty-based score derived from the number of accounts with warning/critical findings
+
+> [!IMPORTANT]
+> The dashboard is designed for **practical risk ranking**, not formal cryptographic proof.
+>
+> Entropy values, breach estimates, and crack-time calculations are heuristic and should be interpreted as guidance, not guarantees.
 
 <img width="1919" height="1079" alt="Captura de pantalla 2026-03-24 013720" src="https://github.com/user-attachments/assets/37d3685d-eca4-43bb-a881-c27c831723fa" />
 
@@ -466,14 +483,16 @@ graph TD
 
 ### What PassGuard OS Store & How
 
-| Data Type | Storage | Encryption Status |
-|--- |--- |---
-| Master Password | NEVER STORED | Argon2id Verification Hash |
-| Account Passwords | SQLite | AES-256-GCM (v5 Argon2id) |
-| Notes | SQLite | AES-256-GCM (v5 Argon2id) |
-| 2FA Seeds (TOTP) | SQLite | AES-256-GCM (v5 Argon2id) |
-| Recovery Codes | SQLite | AES-256-GCM (v5 Argon2id) |
-| Biometric Key | OS Keystore | Platform-managed |
+| Data Type | Current Storage | Current Protection |
+|---|---|---|
+| Master Password | Never stored in plaintext | Salted PBKDF2-HMAC-SHA256 verification hash |
+| Panic Password | Never stored in plaintext | Salted PBKDF2-HMAC-SHA256 verification hash |
+| Account Passwords | SQLite | `v5` AES-256-GCM + Argon2id for new/updated records |
+| Notes | SQLite | `v5` AES-256-GCM + Argon2id for new/updated records |
+| TOTP Seeds | SQLite | `v5` AES-256-GCM + Argon2id for new/updated records |
+| Recovery Codes | SQLite | `v5` AES-256-GCM + Argon2id for new/updated records |
+| Audit Cache | SQLite (`audit_cache`) | Cached risk metadata, not a substitute for encrypted secret storage |
+| Biometric Unlock Secret | Platform secure storage | Stored through `flutter_secure_storage` / OS keystore mechanisms |
 
 ### Security Audit
 Before releasing this as v1.0, the following measures were taken:
@@ -610,11 +629,26 @@ This software is provided "as is" for personal use and educational purposes.
 </details>
 <details>
 <summary><b>Is this safe to use?</b></summary>
-    PassGuard OS uses proven encryption (AES-256, PBKDF2) and is open source. However, it's not professionally audited. For maximum safety:
-    - Review the code yourself
-    - Start with non-critical passwords
-    - Maintain backups
-    - Report any issues you find
+<br>
+PassGuard OS uses real cryptographic primitives and local-first design principles, but it is not professionally audited and still includes legacy compatibility code and convenience-driven browser integration logic.
+
+The dashboard can help you spot:
+<ul>
+  <li>reused passwords</li>
+  <li>known leaked passwords</li>
+  <li>simple keyboard patterns</li>
+  <li>low-entropy passwords</li>
+</ul>
+
+However, its score and crack-time estimates are heuristic and should be treated as guidance, not guarantees.
+
+For cautious use:
+<ul>
+  <li>review the code yourself</li>
+  <li>start with non-critical secrets</li>
+  <li>keep backups</li>
+  <li>disable the browser extension if you do not need it</li>
+</ul>
 </details>
 <details>
 <summary><b>How do I backup my vault?</b></summary>
