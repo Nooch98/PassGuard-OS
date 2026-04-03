@@ -9,6 +9,7 @@ import 'package:crypto/crypto.dart';
 import '../services/db_helper.dart';
 import '../services/encryption_service.dart';
 import '../models/password_model.dart';
+import '../services/auth_service.dart';
 
 enum RiskLevel { critical, warning, info }
 
@@ -107,11 +108,17 @@ class DashboardScreenState extends State<DashboardScreen> {
     });
 
     try {
+      bool travelModeActive = await AuthService.getTravelModeEnabled();
       final db = await DBHelper.database;
       await db.execute(
           "UPDATE accounts SET audit_cache = NULL WHERE is_excluded = 0 AND audit_cache LIKE '%\"excluded\":true%'");
 
-      final rows = await DBHelper.getRawAccounts();
+      final List<Map<String, dynamic>> rows;
+        if (travelModeActive) {
+          rows = await db.query('accounts', where: 'is_travel_safe = 0');
+        } else {
+          rows = await DBHelper.getRawAccounts();
+        }
       _totalAccounts = rows.length;
 
       final auditData = {
@@ -380,6 +387,16 @@ class DashboardScreenState extends State<DashboardScreen> {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
+            FutureBuilder<bool>(
+              future: AuthService.getTravelModeEnabled(),
+              builder: (context, snapshot) {
+                if (snapshot.data == true) {
+                  return _buildTravelModeWarning();
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+            const SizedBox(height: 10),
             _buildSectionTitle("INTEGRITY_INDEX", Icons.analytics_outlined),
             const SizedBox(height: 15),
             _buildAdvancedGauge(),
@@ -411,6 +428,45 @@ class DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 100),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildTravelModeWarning() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 15),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.05),
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.security_update_warning, color: Colors.orange, size: 14),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "TRAVEL_PROTOCOL_ACTIVE",
+                  style: TextStyle(
+                    color: Colors.orange, 
+                    fontSize: 9, 
+                    fontWeight: FontWeight.bold, 
+                    fontFamily: 'monospace',
+                    letterSpacing: 1.5
+                  ),
+                ),
+                const Text(
+                  "Sensitive nodes have been de-indexed from this report.",
+                  style: TextStyle(color: Colors.white38, fontSize: 8),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
