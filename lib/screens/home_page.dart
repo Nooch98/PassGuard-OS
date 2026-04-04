@@ -21,6 +21,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:passguard/screens/dashboard.dart';
 import 'package:passguard/screens/identities_vault_screen.dart';
+import 'package:passguard/services/security_controller.dart';
+import 'package:passguard/widgets/cybertype_widget.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -198,18 +200,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } catch (e) {
         //
       }
-    }
-  }
-
-  void _handleSessionTimeout() {
-    if (mounted) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('SESSION_EXPIRED: VAULT_LOCKED'),
-          backgroundColor: Colors.orange,
-        ),
-      );
     }
   }
 
@@ -445,26 +435,90 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final check = stegoService.checkCapacity(imageInfo.width, imageInfo.height, encryptedData);
 
       if (!mounted) return;
+
       bool confirm = await showDialog(
         context: context,
         builder: (context) => AlertDialog(
           backgroundColor: const Color(0xFF0A0A0E),
-          title: const Text("> INJECTION_PREVIEW", style: TextStyle(color: Color(0xFF00FBFF), fontSize: 14)),
+          shape: RoundedRectangleBorder(
+            side: BorderSide(
+              color: check.fits ? const Color(0xFF00FBFF) : const Color(0xFFFF3131), 
+              width: 1
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          title: Row(
+            children: [
+              Icon(
+                check.fits ? Icons.biotech : Icons.report_problem, 
+                color: check.fits ? const Color(0xFF00FBFF) : const Color(0xFFFF3131),
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                "INJECTION_ANALYSIS", 
+                style: TextStyle(
+                  color: Colors.white, 
+                  fontSize: 14, 
+                  fontFamily: 'monospace', 
+                  fontWeight: FontWeight.bold
+                )
+              ),
+            ],
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text("Analyzing carrier image capacity...", style: TextStyle(color: Colors.white70, fontSize: 12)),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.02),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Column(
+                  children: [
+                    _buildTerminalRow("CARRIER_DIM:", "${imageInfo.width}x${imageInfo.height}px"),
+                    _buildTerminalRow("STATUS:", check.fits ? "CAPACITY_OPTIMAL" : "BUFFER_OVERFLOW", 
+                      color: check.fits ? const Color(0xFF00FF41) : const Color(0xFFFF3131)),
+                  ],
+                ),
+              ),
               const SizedBox(height: 20),
+              const Text(
+                "STORAGE_CAPACITY_MAP", 
+                style: TextStyle(color: Colors.white38, fontSize: 9, fontFamily: 'monospace')
+              ),
+              const SizedBox(height: 8),
               _buildCapacityIndicator(check),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("ABORT")),
+            TextButton(
+              onPressed: () => Navigator.pop(context, false), 
+              child: const Text(
+                "ABORT", 
+                style: TextStyle(color: Colors.white30, fontFamily: 'monospace', fontSize: 12)
+              )
+            ),
             if (check.fits)
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00FBFF)),
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text("INJECT", style: TextStyle(color: Colors.black)),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00FBFF),
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                ),
+                onPressed: () {
+                  HapticFeedback.mediumImpact();
+                  Navigator.pop(context, true);
+                },
+                icon: const Icon(Icons.layers, size: 18),
+                label: const Text(
+                  "START_INJECTION", 
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'monospace')
+                ),
               ),
           ],
         ),
@@ -481,6 +535,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       security.resumeLocking();
       _showErrorSnackBar("INJECTION_FAILED: ${e.toString()}");
     }
+  }
+
+  Widget _buildTerminalRow(String label, String value, {Color? color}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white38, fontSize: 10, fontFamily: 'monospace')),
+          Text(value, style: TextStyle(color: color ?? Colors.white70, fontSize: 10, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
   }
 
   Future<void> _handleImageExtraction() async {
@@ -612,23 +679,55 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _saveAsFile(String encryptedContent) async {
     try {
+      HapticFeedback.selectionClick();
       String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
       String fileName = "PG_BACKUP_$timestamp.pgvault";
-      
-      String? outputFile = await FilePicker.platform.saveFile(
-        dialogTitle: 'SELECT_EXPORT_LOCATION',
-        fileName: fileName,
-        type: FileType.any,
+
+      String? selectedDirectory = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'SELECT_EXPORT_DIRECTORY',
       );
 
-      if (outputFile == null) return;
+      if (selectedDirectory == null) {
+        _showErrorSnackBar("EXPORT_ABORTED: NO_DIRECTORY_SELECTED");
+        return;
+      }
 
-      final file = File(outputFile);
+      final String fullPath = "$selectedDirectory${Platform.pathSeparator}$fileName";
+      final File file = File(fullPath);
       await file.writeAsString(encryptedContent);
+      _showSuccessSnackBar("FILE_COMMITTED: ${fileName.toUpperCase()}");
 
-      _showSuccessSnackBar("VAULT_EXPORTED_SUCCESSFULLY");
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: const Color(0xFF0A0A0E),
+            shape: RoundedRectangleBorder(
+              side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            title: const Text("> EXPORT_LOG", style: TextStyle(color: Color(0xFF00FBFF), fontSize: 14, fontFamily: 'monospace')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildStatRow("FILENAME:", fileName, Colors.white70),
+                _buildStatRow("PATH:", selectedDirectory, const Color(0xFF00FBFF).withOpacity(0.5)),
+                _buildStatRow("STATUS:", "VERIFIED_ON_DISK", const Color(0xFF00FF41)),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("ACKNOWLEDGE", style: TextStyle(color: Color(0xFF00FBFF), fontSize: 10)),
+              )
+            ],
+          ),
+        );
+      }
+
     } catch (e) {
-      _showErrorSnackBar("FILE_SYSTEM_ERROR: ${e.toString()}");
+      _showErrorSnackBar("IO_ACCESS_DENIED: ${e.toString()}");
     }
   }
 
@@ -640,20 +739,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.any,
+        allowMultiple: false,
+        withData: true,
         dialogTitle: "SELECT_ENCRYPTED_BUNDLE",
       );
 
       security.resumeLocking();
 
-      if (result != null && result.files.single.path != null) {
-        String encryptedData = await File(result.files.single.path!).readAsString();
+      if (result != null && result.files.isNotEmpty) {
+        String encryptedData = "";
+        PlatformFile file = result.files.first;
+
+        if (file.bytes != null) {
+          encryptedData = utf8.decode(file.bytes!);
+        } else if (file.path != null) {
+          encryptedData = await File(file.path!).readAsString();
+        }
+
+        if (encryptedData.isEmpty) throw "EMPTY_OR_UNREADABLE_FILE";
+
         if (!mounted) return;
+
+        HapticFeedback.mediumImpact();
+        _showSuccessSnackBar("DECRYPT_STREAM_OPENED: ${file.name}");
+        
         _showPasswordEntryDialog(isExport: false, dataToImport: encryptedData);
       }
     } catch (e) {
       security.resumeLocking();
       if (mounted) {
-        _showErrorSnackBar("FILE_PICK_ERROR: SYSTEM_ABORTED_OR_NOT_FOUND");
+        _showErrorSnackBar("IMPORT_CRITICAL_FAILURE: SYSTEM_I/O_DENIED");
+        debugPrint("Error detalle: $e");
       }
     }
   }
@@ -695,53 +811,138 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _showSecureBundleManager() {
-    final TextEditingController _passController = TextEditingController();
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF0A0A0E),
-        shape: const Border(left: BorderSide(color: Color(0xFF00FBFF), width: 4)),
-        title: const Text("> BUNDLE_TRANSCEIVER_v5", 
-          style: TextStyle(color: Color(0xFF00FBFF), fontFamily: 'Courier', fontSize: 16)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+        contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+        shape: RoundedRectangleBorder(
+          side: const BorderSide(color: Color(0xFF1A1A1E), width: 1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        title: Row(
           children: [
+            const Icon(Icons.settings_input_antenna, color: Color(0xFF00FBFF), size: 18),
+            const SizedBox(width: 12),
             const Text(
-              "Select operation mode for encrypted JSON bundles (Argon2id + AES-GCM).",
-              style: TextStyle(color: Colors.white70, fontSize: 11),
-            ),
-            const SizedBox(height: 20),
-
-            ListTile(
-              tileColor: Colors.white.withOpacity(0.05),
-              leading: const Icon(Icons.upload_file, color: Color(0xFF00FBFF)),
-              title: const Text("EXPORT_BUNDLE", style: TextStyle(color: Colors.white, fontSize: 14)),
-              subtitle: const Text("Encrypt and save vault locally", style: TextStyle(fontSize: 10, color: Colors.grey)),
-              onTap: () {
-                Navigator.pop(context);
-                _showPasswordEntryDialog(isExport: true);
-              },
-            ),
-            
-            const SizedBox(height: 10),
-
-            ListTile(
-              tileColor: Colors.white.withOpacity(0.05),
-              leading: const Icon(Icons.download_for_offline, color: Color(0xFFFF00FF)),
-              title: const Text("IMPORT_BUNDLE", style: TextStyle(color: Colors.white, fontSize: 14)),
-              subtitle: const Text("Restore vault from .pgvault file", style: TextStyle(fontSize: 10, color: Colors.grey)),
-              onTap: () {
-                Navigator.pop(context);
-                _initiateImportFlow();
-              },
+              "BUNDLE_TRANSCEIVER_v5",
+              style: TextStyle(
+                color: Color(0xFF00FBFF),
+                fontFamily: 'monospace',
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1,
+              ),
             ),
           ],
         ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Protocol: Argon2id + AES-GCM 256-bit",
+              style: TextStyle(color: Colors.white30, fontSize: 9, fontFamily: 'monospace'),
+            ),
+            const SizedBox(height: 20),
+            InkWell(
+              onTap: () {
+                HapticFeedback.mediumImpact();
+                Navigator.pop(context);
+                _showPasswordEntryDialog(isExport: true);
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00FBFF).withOpacity(0.03),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF00FBFF).withOpacity(0.15), width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00FBFF).withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.upload_file, color: Color(0xFF00FBFF), size: 20),
+                    ),
+                    const SizedBox(width: 16),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("EXPORT_BUNDLE",
+                            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                          SizedBox(height: 2),
+                          Text("SECURE_OUTBOUND_ENCRYPTION",
+                            style: TextStyle(color: Color(0x8000FBFF), fontSize: 9, letterSpacing: 0.5)),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, color: Color(0x4D00FBFF), size: 16),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              onTap: () {
+                HapticFeedback.mediumImpact();
+                Navigator.pop(context);
+                _initiateImportFlow();
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF00FF).withOpacity(0.03),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFF00FF).withOpacity(0.15), width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF00FF).withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.download_for_offline, color: Color(0xFFFF00FF), size: 20),
+                    ),
+                    const SizedBox(width: 16),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("IMPORT_BUNDLE",
+                            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                          SizedBox(height: 2),
+                          Text("RESTORE_VAULT_DECODING",
+                            style: TextStyle(color: Color(0x80FF00FF), fontSize: 9, letterSpacing: 0.5)),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, color: Color(0x4DFF00FF), size: 16),
+                  ],
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 10),
+          ],
+        ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("CLOSE", style: TextStyle(color: Colors.grey)),
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                "TERMINATE_SESSION",
+                style: TextStyle(color: Colors.white24, fontSize: 10, fontFamily: 'monospace'),
+              ),
+            ),
           ),
         ],
       ),
@@ -749,23 +950,105 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _showPasswordEntryDialog({required bool isExport, String? dataToImport}) {
+    final Color accentColor = isExport ? const Color(0xFF00FBFF) : const Color(0xFFFF00FF);
+    final String title = isExport ? "> INITIATE_EXPORT_SEQUENCE" : "> INITIATE_IMPORT_SEQUENCE";
+    final IconData actionIcon = isExport ? Icons.ios_share : Icons.system_update_alt;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF0A0A0E),
-        title: Text(isExport ? "> GENERATE_VAULT_BUNDLE" : "> READ_VAULT_BUNDLE", 
-          style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 14, fontFamily: 'monospace')),
-        content: Text(
-          isExport 
-            ? "The export will preserve all encryption integrity (including TOTP seeds)."
-            : "The import will merge the external bundle into your current vault.",
-          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: accentColor.withOpacity(0.5), width: 1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(actionIcon, color: accentColor, size: 18),
+                const SizedBox(width: 10),
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: accentColor,
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              height: 2,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [accentColor, Colors.transparent],
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.02),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline, color: accentColor.withOpacity(0.7), size: 16),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      isExport
+                          ? "The export will preserve all encryption integrity, including sensitive TOTP seeds and metadata."
+                          : "The import will merge the external bundle into your current vault. Ensure the source is trusted.",
+                      style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 15),
+            Text(
+              isExport ? "READY_FOR_ENCRYPTION_STREAM" : "READY_FOR_DECRYPTION_STREAM",
+              style: TextStyle(
+                color: accentColor.withOpacity(0.4),
+                fontSize: 9,
+                fontFamily: 'monospace',
+                letterSpacing: 1,
+              ),
+            ),
+          ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00FBFF)),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              "ABORT",
+              style: TextStyle(color: Colors.white24, fontFamily: 'monospace', fontSize: 12),
+            ),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: accentColor,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+              elevation: 0,
+            ),
             onPressed: () async {
+              HapticFeedback.heavyImpact();
               Navigator.pop(context);
 
               if (isExport) {
@@ -774,13 +1057,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               } else {
                 final result = await SyncService.importSecurePackage(dataToImport!, widget.masterKey);
                 if (result.success) {
-                  _handleImportResult(result); 
+                  _handleImportResult(result);
                 } else {
                   _showErrorSnackBar("IMPORT_FAILED: KEY_MISMATCH_OR_CORRUPT");
                 }
               }
             },
-            child: Text(isExport ? "EXPORT" : "IMPORT", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            icon: Icon(isExport ? Icons.lock_outline : Icons.lock_open, size: 16),
+            label: Text(
+              isExport ? "CONFIRM_EXPORT" : "CONFIRM_IMPORT",
+              style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'monospace', fontSize: 12),
+            ),
           ),
         ],
       ),
@@ -1278,43 +1565,100 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF0A0A0E),
+        contentPadding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
         shape: RoundedRectangleBorder(
-          side: const BorderSide(color: Color(0xFF00FBFF), width: 1.5),
-          borderRadius: BorderRadius.circular(8),
+          side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
+          borderRadius: BorderRadius.circular(12),
         ),
-        title: const Text('> SESSION_TIMEOUT', 
-                          style: TextStyle(color: Color(0xFF00FBFF), fontSize: 16)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Select inactivity timeout:', 
-                       style: TextStyle(color: Colors.white70, fontSize: 12)),
-            const SizedBox(height: 20),
-            _buildTimeoutOption('1 MINUTE', 1),
-            _buildTimeoutOption('5 MINUTES', 5),
-            _buildTimeoutOption('15 MINUTES', 15),
-            _buildTimeoutOption('30 MINUTES', 30),
-            _buildTimeoutOption('NEVER', 0),
+            const Text(
+              '> SESSION_TIMEOUT_CONFIG', 
+              style: TextStyle(
+                color: Color(0xFF00FBFF), 
+                fontSize: 14, 
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.bold
+              )
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Select inactivity threshold:', 
+              style: TextStyle(color: Colors.white38, fontSize: 11)
+            ),
           ],
         ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Divider(color: Colors.white10, height: 1),
+              const SizedBox(height: 10),
+              _buildTimeoutOption('1 MINUTE', 1),
+              _buildTimeoutOption('5 MINUTES', 5),
+              _buildTimeoutOption('15 MINUTES', 15),
+              _buildTimeoutOption('30 MINUTES', 30),
+              _buildTimeoutOption('NEVER (UNSAFE)', 0),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ABORT', style: TextStyle(color: Colors.white24, fontSize: 11, fontFamily: 'monospace')),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildTimeoutOption(String label, int minutes) {
-    return ListTile(
-      title: Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
-      onTap: () async {
-        await AuthService.setSessionTimeout(minutes);
-        if (minutes > 0) {
-          SessionManager().setTimeoutDuration(Duration(minutes: minutes));
-          SessionManager().setEnabled(true);
-        } else {
-          SessionManager().setEnabled(false);
-        }
-        Navigator.pop(context);
-        _showSuccessSnackBar('TIMEOUT_SET: $label');
-      },
+    IconData optionIcon = minutes == 0 ? Icons.all_inclusive : Icons.timer_outlined;
+    Color labelColor = minutes == 0 ? const Color(0xFFFF3131) : Colors.white70;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: InkWell(
+        onTap: () async {
+          await AuthService.setSessionTimeout(minutes);
+          if (minutes > 0) {
+            SessionManager().setTimeoutDuration(Duration(minutes: minutes));
+            SessionManager().setEnabled(true);
+          } else {
+            SessionManager().setEnabled(false);
+          }
+          if (mounted) Navigator.pop(context);
+          _showSuccessSnackBar('TIMEOUT_SET: $label');
+        },
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.white.withOpacity(0.05)),
+          ),
+          child: Row(
+            children: [
+              Icon(optionIcon, size: 16, color: labelColor.withOpacity(0.5)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label, 
+                  style: TextStyle(
+                    color: labelColor, 
+                    fontSize: 12, 
+                    fontFamily: 'monospace',
+                    letterSpacing: 1
+                  )
+                ),
+              ),
+              const Icon(Icons.chevron_right, size: 14, color: Colors.white10),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1441,25 +1785,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (context) => const Center(
-            child: CircularProgressIndicator(color: Color(0xFF00FBFF)),
+          builder: (context) => AlertDialog(
+            backgroundColor: const Color(0xFF0A0A0E),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 40, height: 40,
+                  child: CircularProgressIndicator(color: Color(0xFF00FBFF), strokeWidth: 2),
+                ),
+                const SizedBox(height: 20),
+                const Text("ENCRYPTING_PACKAGE...", 
+                  style: TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace', fontSize: 12)),
+              ],
+            ),
           ),
         );
       }
 
-      final String encryptedData = await SyncService.exportSecurePackage(
-        _passwords, 
-        widget.masterKey
-    );
-      
+      final String encryptedData = await SyncService.exportSecurePackage(_passwords, widget.masterKey);
       final String compressedData = CompressionService.compressForQR(encryptedData);
-
       final bool fitsInQR = CompressionService.fitsInQR(compressedData);
       final double sizeKB = CompressionService.getSizeKB(compressedData);
 
       if (mounted) Navigator.pop(context);
 
       if (!fitsInQR) {
+        HapticFeedback.vibrate(); 
         if (!mounted) return;
 
         final int avgSizePerPassword = compressedData.length ~/ _passwords.length;
@@ -1470,76 +1822,57 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           builder: (context) => AlertDialog(
             backgroundColor: const Color(0xFF0A0A0E),
             shape: RoundedRectangleBorder(
-              side: const BorderSide(color: Colors.red, width: 2),
+              side: const BorderSide(color: Color(0xFFFF3131), width: 1),
               borderRadius: BorderRadius.circular(8),
             ),
             title: const Row(
               children: [
-                Icon(Icons.warning_amber, color: Colors.red),
+                Icon(Icons.gpp_maybe, color: Color(0xFFFF3131)),
                 SizedBox(width: 10),
-                Text('QR_TOO_LARGE', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16)),
+                Text('BUFFER_OVERFLOW', style: TextStyle(color: Color(0xFFFF3131), fontFamily: 'monospace', fontWeight: FontWeight.bold)),
               ],
             ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Your vault is too large for a single QR code.',
-                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('The vault size exceeds QR standard capacity.', 
+                  style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const SizedBox(height: 15),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.03),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.white10),
                   ),
-                  const SizedBox(height: 15),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF16161D),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: Colors.red.withOpacity(0.3)),
-                    ),
-                    child: Column(
-                      children: [
-                        _buildStatRow('Current size:', '${sizeKB.toStringAsFixed(1)} KB', Colors.red),
-                        _buildStatRow('QR limit:', '2.8 KB', Colors.white54),
-                        const Divider(color: Colors.white10, height: 20),
-                        _buildStatRow('Your passwords:', '${_passwords.length}', Colors.white70),
-                        _buildStatRow('Estimated max:', '~$maxPasswords', Colors.orange),
-                      ],
-                    ),
+                  child: Column(
+                    children: [
+                      _buildStatRow('CURRENT_PAYLOAD:', '${sizeKB.toStringAsFixed(1)} KB', const Color(0xFFFF3131)),
+                      _buildStatRow('HARD_LIMIT:', '2.8 KB', Colors.white30),
+                      const Divider(color: Colors.white10),
+                      _buildStatRow('MAX_CAPACITY:', '~$maxPasswords ACCOUNTS', Colors.orange),
+                    ],
                   ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Recommended alternatives:',
-                    style: TextStyle(color: Color(0xFF00FBFF), fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 10),
-                  _buildAlternativeOption(
-                    icon: Icons.image,
-                    label: 'Use Steganography',
-                    description: 'Hide vault in an image (unlimited size)',
-                  ),
-                  const SizedBox(height: 8),
-                  _buildAlternativeOption(
-                    icon: Icons.file_download,
-                    label: 'Export to CSV',
-                    description: 'Export and transfer manually',
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 20),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('ALTERNATIVE_PROTOCOLS:', 
+                    style: TextStyle(color: Color(0xFF00FBFF), fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                ),
+                const SizedBox(height: 10),
+                _buildAlternativeOption(
+                  icon: Icons.blur_on,
+                  label: 'Cold Storage (Image)',
+                  description: 'Use steganography for large vaults.',
+                  onTap: () { Navigator.pop(context); _showColdStorageDialog(); }
+                ),
+              ],
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('CANCEL', style: TextStyle(color: Colors.white54)),
-              ),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00FBFF)),
-                icon: const Icon(Icons.image, color: Colors.black, size: 18),
-                label: const Text('USE_STEGANOGRAPHY', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                onPressed: () {
-                  Navigator.pop(context);
-                  _showColdStorageDialog();
-                },
+                child: const Text('ABORT', style: TextStyle(color: Colors.white30, fontFamily: 'monospace')),
               ),
             ],
           ),
@@ -1553,6 +1886,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         Uint8List.fromList(compressionBytes)
       );
 
+      HapticFeedback.heavyImpact();
+
       if (!mounted) return;
 
       showDialog(
@@ -1560,14 +1895,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         builder: (context) => AlertDialog(
           backgroundColor: const Color(0xFF0A0A0E),
           shape: RoundedRectangleBorder(
-            side: const BorderSide(color: Color(0xFF00FBFF), width: 2),
-            borderRadius: BorderRadius.circular(10),
+            side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
+            borderRadius: BorderRadius.circular(12),
           ),
-          title: const Row(
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(Icons.qr_code_2, color: Color(0xFF00FBFF)),
-              SizedBox(width: 10),
-              Text("DATA_STREAM_READY", style: TextStyle(color: Color(0xFF00FBFF), fontSize: 14, fontFamily: 'monospace')),
+              const Text("QR_STREAM_ACTIVE", style: TextStyle(color: Color(0xFF00FBFF), fontSize: 12, fontFamily: 'monospace')),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(color: const Color(0xFF00FF41).withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                child: const Text("ENCRYPTED", style: TextStyle(color: Color(0xFF00FF41), fontSize: 8)),
+              )
             ],
           ),
           content: SizedBox(
@@ -1576,86 +1915,100 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF16161D),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: const Color(0xFF00FBFF).withOpacity(0.3)),
-                  ),
-                  child: Column(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.02), borderRadius: BorderRadius.circular(8)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _buildStatRow('ACCOUNTS:', '${_passwords.length}', const Color(0xFF00FBFF)),
-                      _buildStatRow('SIZE:', '${sizeKB.toStringAsFixed(2)} KB', const Color(0xFF00FBFF)),
-                      _buildStatRow('COMPRESSION:', '${compressionRatio.toStringAsFixed(0)}%', const Color(0xFF00FF00)),
+                      _buildCompactStat("ACCOUNTS", "${_passwords.length}"),
+                      _buildCompactStat("SIZE", "${sizeKB.toStringAsFixed(2)}K"),
+                      _buildCompactStat("RATIO", "${compressionRatio.toStringAsFixed(0)}%"),
                     ],
                   ),
                 ),
-                const SizedBox(height: 15),
-                const Text(
-                  "SCAN WITH DESTINATION DEVICE",
-                  style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: QrImageView(
-                    data: compressedData,
-                    version: QrVersions.auto,
-                    size: 240.0,
-                    backgroundColor: Colors.white,
-                    eyeStyle: const QrEyeStyle(
-                      eyeShape: QrEyeShape.square,
-                      color: Colors.black,
-                    ),
-                    dataModuleStyle: const QrDataModuleStyle(
-                      dataModuleShape: QrDataModuleShape.square,
-                      color: Colors.black,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 15),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.orange, size: 16),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Scan carefully. QR is dense.',
-                          style: TextStyle(color: Colors.orange, fontSize: 10),
-                        ),
+                const SizedBox(height: 20),
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(15),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(color: const Color(0xFF00FBFF).withOpacity(0.2), blurRadius: 15, spreadRadius: 2)
+                        ]
                       ),
-                    ],
-                  ),
+                      child: QrImageView(
+                        data: compressedData,
+                        version: QrVersions.auto,
+                        size: 200.0,
+                        eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
+                        dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Colors.black),
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 20),
+                const Text("ALINE SOURCE SCANNER WITH THIS CODE", 
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white38, fontSize: 9, letterSpacing: 0.5)),
               ],
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('CLOSE'),
+            Center(
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('DISCONNECT_STREAM', style: TextStyle(color: Color(0xFF00FBFF), fontSize: 11, fontFamily: 'monospace')),
+              ),
             ),
           ],
         ),
       );
     } catch (e) {
-      if (mounted && Navigator.canPop(context)) {
-        Navigator.pop(context);
-      }
-      _showErrorSnackBar("EXPORT_FAILED: ${e.toString()}");
+      if (mounted && Navigator.canPop(context)) Navigator.pop(context);
+      _showErrorSnackBar("SYSTEM_CRITICAL_ERROR: ${e.toString()}");
     }
+  }
+
+  Widget _buildCompactStat(String label, String value) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white24, fontSize: 8, fontFamily: 'monospace')),
+        Text(value, style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+      ],
+    );
+  }
+
+  Widget _buildAlternativeOption({required IconData icon, required String label, required String description, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: const Color(0xFF00FBFF), size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                  Text(description, style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white12, size: 16),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildStatRow(String label, String value, Color valueColor) {
@@ -1666,37 +2019,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         children: [
           Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
           Text(value, style: TextStyle(color: valueColor, fontWeight: FontWeight.bold, fontFamily: 'monospace', fontSize: 12)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAlternativeOption({
-    required IconData icon,
-    required String label,
-    required String description,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF16161D),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: const Color(0xFF00FBFF), size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 2),
-                Text(description, style: const TextStyle(color: Colors.white54, fontSize: 10)),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -2640,125 +2962,212 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final EdgeInsets systemPadding = MediaQuery.of(context).padding;
     return GestureDetector(
       onTap: _onUserInteraction,
       onPanUpdate: (_) => _onUserInteraction(),
       child: Scaffold(
         backgroundColor: const Color(0xFF050505),
+        extendBody: true, 
         appBar: AppBar(
-          backgroundColor: Colors.transparent,
+          backgroundColor: const Color(0xFF050505),
           elevation: 0,
-          title: _isSearching
-              ? TextField(
-            controller: _searchController,
-            autofocus: true,
-            style: const TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace'),
-            decoration: const InputDecoration(
-              hintText: "SCANNING_NODES...",
-              hintStyle: TextStyle(color: Colors.white24, fontSize: 14),
-              border: InputBorder.none,
-            ),
-            onChanged: (v) => _loadPasswords(query: v),
-          )
-              : Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text("VAULT_INTERFACE",
-                  style: TextStyle(color: Color(0xFF00FBFF), fontSize: 13, letterSpacing: 1, fontFamily: 'monospace')),
-
-              ValueListenableBuilder<Duration?>(
-                valueListenable: SessionManager().remainingTimeNotifier,
-                builder: (context, remaining, _) {
-                  if (remaining == null) return const SizedBox.shrink();
-
-                  final minutes = remaining.inMinutes;
-                  final seconds = (remaining.inSeconds % 60).toString().padLeft(2, '0');
-
-                  final isUrgent = remaining.inSeconds < 60;
-                  final timerColor = isUrgent ? const Color(0xFFFF3131) : const Color(0xFF00FF41);
-
-                  return Text(
-                    "SESSION_TTL: $minutes:$seconds",
-                    style: TextStyle(
-                      color: timerColor,
-                      fontSize: 9,
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.bold,
-                      shadows: [
-                        Shadow(
-                          blurRadius: 4,
-                          color: timerColor.withOpacity(0.4),
-                        )
-                      ],
-                    ),
-                  );
-                },
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(1.0),
+            child: Container(
+              height: 1.0,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.transparent, 
+                    const Color(0xFF00FBFF).withOpacity(0.3), 
+                    Colors.transparent
+                  ],
+                ),
               ),
-              const SizedBox(height: 6),
-            ],
+            ),
           ),
+          title: _isSearching
+              ? Container(
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00FBFF).withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: const Color(0xFF00FBFF).withOpacity(0.2)),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: TextField(
+                    controller: _searchController,
+                    autofocus: true,
+                    style: const TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace', fontSize: 13),
+                    decoration: const InputDecoration(
+                      hintText: "SCANNING_NODES...",
+                      hintStyle: TextStyle(color: Colors.white12, fontSize: 12),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    onChanged: (v) => _loadPasswords(query: v),
+                  ),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "VAULT_INTERFACE",
+                      style: TextStyle(
+                        color: Color(0xFF00FBFF), 
+                        fontSize: 10, 
+                        letterSpacing: 2, 
+                        fontFamily: 'monospace', 
+                        fontWeight: FontWeight.bold
+                      ),
+                    ),
+                    ValueListenableBuilder<Duration?>(
+                      valueListenable: SessionManager().remainingTimeNotifier,
+                      builder: (context, remaining, _) {
+                        if (remaining == null) return const SizedBox.shrink();
+                        final minutes = remaining.inMinutes;
+                        final seconds = (remaining.inSeconds % 60).toString().padLeft(2, '0');
+                        final isUrgent = remaining.inSeconds < 60;
+                        final timerColor = isUrgent ? const Color(0xFFFF3131) : const Color(0xFF00FF41);
+
+                        return Row(
+                          children: [
+                            Container(
+                              width: 4, height: 4,
+                              decoration: BoxDecoration(
+                                color: timerColor,
+                                shape: BoxShape.circle,
+                                boxShadow: [BoxShadow(color: timerColor, blurRadius: 4)],
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              "SESSION_EXPIRE: $minutes:$seconds",
+                              style: TextStyle(
+                                color: timerColor.withOpacity(0.7),
+                                fontSize: 9,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
           actions: [
             IconButton(
-                icon: Icon(_isSearching ? Icons.close : Icons.search, color: const Color(0xFF00FBFF)),
-                onPressed: () {
-                  setState(() {
-                    _isSearching = !_isSearching;
-                    if (!_isSearching) {
-                      _searchController.clear();
-                      _loadPasswords();
-                    }
-                  });
-                }),
+              visualDensity: VisualDensity.compact,
+              icon: Icon(_isSearching ? Icons.close : Icons.search, 
+                    color: const Color(0xFF00FBFF), size: 20),
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                setState(() {
+                  _isSearching = !_isSearching;
+                  if (!_isSearching) {
+                    _searchController.clear();
+                    _loadPasswords();
+                  }
+                });
+              },
+            ),
             IconButton(
-              icon: const Icon(Icons.filter_list, color: Color(0xFFFF00FF)),
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.filter_list, color: Color(0xFFFF00FF), size: 20),
               onPressed: _showFilterMenu,
             ),
             IconButton(
-              icon: const Icon(Icons.sort, color: Color(0xFFFF00FF)),
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.sort, color: Color(0xFFFF00FF), size: 20),
               onPressed: _showSortMenu,
             ),
             IconButton(
-              icon: const Icon(Icons.tune, color: Color(0xFFFF00FF)),
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.tune, color: Color(0xFFFF00FF), size: 20),
               onPressed: _showSystemMenu,
             ),
-          ],
-        ),
-        body: IndexedStack(
-          index: _selectedIndex,
-          children: [
-            _buildPasswordList(),
-            IdentitiesVaultScreen(key: _identitiesKey, masterKey: widget.masterKey),
-            DashboardScreen(key: _dashboardKey, masterKey: widget.masterKey, onRepairRequested: (model) => _showForm(existingPassword: model)),
-            //FileVaultScreen(masterKey: widget.masterKey),
+            const SizedBox(width: 5),
           ],
         ),
 
+        body: SafeArea(
+          bottom: false,
+          child: IndexedStack(
+            index: _selectedIndex,
+            children: [
+              _buildPasswordList(),
+              IdentitiesVaultScreen(key: _identitiesKey, masterKey: widget.masterKey),
+              DashboardScreen(key: _dashboardKey, masterKey: widget.masterKey, onRepairRequested: (model) => _showForm(existingPassword: model)),
+            ],
+          ),
+        ),
+
         bottomNavigationBar: Container(
+          padding: EdgeInsets.only(bottom: systemPadding.bottom > 0 ? systemPadding.bottom : 8),
           decoration: BoxDecoration(
-            border: Border(top: BorderSide(color: const Color(0xFF00FBFF).withOpacity(0.2), width: 1)),
+            color: const Color(0xFF0A0A0E).withOpacity(0.95),
+            border: const Border(
+              top: BorderSide(color: Color(0xFF00FBFF), width: 0.5),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF00FBFF).withOpacity(0.05),
+                blurRadius: 20,
+                offset: const Offset(0, -5),
+              ),
+            ],
           ),
           child: BottomNavigationBar(
             currentIndex: _selectedIndex,
             onTap: (index) {
+              HapticFeedback.mediumImpact();
               setState(() => _selectedIndex = index);
               _onUserInteraction();
             },
-            backgroundColor: const Color(0xFF0A0A0E),
+            elevation: 0,
+            backgroundColor: Colors.transparent,
             selectedItemColor: const Color(0xFF00FBFF),
             unselectedItemColor: Colors.white24,
-            selectedLabelStyle: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+            type: BottomNavigationBarType.fixed,
+            selectedLabelStyle: const TextStyle(
+              fontFamily: 'monospace', 
+              fontSize: 10, 
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1,
+            ),
+            unselectedLabelStyle: const TextStyle(fontFamily: 'monospace', fontSize: 10),
             items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.key), label: "KEYS"),
-              BottomNavigationBarItem(icon: Icon(Icons.badge), label: "IDENTITYS"),
-              BottomNavigationBarItem(icon: Icon(Icons.analytics_outlined), label: "DASHBOARD"),
-              // BottomNavigationBarItem(icon: Icon(Icons.folder_special), label: "FILES"),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.vpn_key_outlined), 
+                activeIcon: Icon(Icons.key), 
+                label: "KEYS"
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.badge_outlined), 
+                activeIcon: Icon(Icons.badge), 
+                label: "IDS"
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.terminal_outlined), 
+                activeIcon: Icon(Icons.terminal), 
+                label: "DASH"
+              ),
+              //BottomNavigationBarItem(
+                //icon: Icon(Icons.folder_special),
+                //activeIcon: Icon(Icons.folder),
+                //label: "FILES"
+              //), 
             ],
           ),
         ),
 
         floatingActionButtonLocation: FloatingActionButtonLocation.startDocked,
-
-        floatingActionButton: _buildTabSpecificFab(),
+        floatingActionButton: Padding(
+          padding: EdgeInsets.only(bottom: systemPadding.bottom > 0 ? 10 : 0),
+          child: _buildTabSpecificFab(),
+        ),
       ),
     );
   }
@@ -2861,241 +3270,199 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _buildPasswordList() {
-  if (_passwords.isEmpty) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.lock_outline_rounded, size: 100, color: Colors.white.withOpacity(0.05)),
-          const SizedBox(height: 24),
-          const Text("> NO_DATA_DETECTED", 
-            style: TextStyle(color: Color(0xFF00FBFF), fontSize: 14, letterSpacing: 2, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          const Text("INITIALIZE_DATABASE_BY_TAPPING_+", 
-            style: TextStyle(color: Colors.white24, fontSize: 10, letterSpacing: 1)),
-        ],
-      ),
-    );
-  }
-
-  return ListView.builder(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-    itemCount: _passwords.length,
-    itemBuilder: (context, index) {
-      final item = _passwords[index];
-
-      final int secondsPassed = (DateTime.now().millisecondsSinceEpoch ~/ 1000) % 30;
-      final double progress = (30 - secondsPassed) / 30;
-      final Color progressColor = progress > 0.3 ? const Color(0xFF00FBFF) : Colors.redAccent;
-
-      final Map<String, Color> catColors = {
-        'WORK': const Color(0xFFFF00FF),
-        'FINANCE': const Color(0xFF00FF00),
-        'SOCIAL': const Color(0xFFFFFF00),
-      };
-      final Color categoryColor = catColors[item.category] ?? const Color(0xFF00FBFF);
-
-      return AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF16161D),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: categoryColor.withOpacity(0.15),
-            width: 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.4),
-              blurRadius: 10,
-              offset: const Offset(0, 6),
-            ),
+    if (_passwords.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline_rounded, size: 100, color: Colors.white.withOpacity(0.05)),
+            const SizedBox(height: 24),
+            const Text("> NO_DATA_DETECTED", 
+              style: TextStyle(color: Color(0xFF00FBFF), fontSize: 14, letterSpacing: 2, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text("INITIALIZE_DATABASE_BY_TAPPING_+", 
+              style: TextStyle(color: Colors.white24, fontSize: 10, letterSpacing: 1)),
           ],
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: ListTile(
-            contentPadding: const EdgeInsets.all(12),
-            leading: Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: categoryColor.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: categoryColor.withOpacity(0.2)),
-              ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      item.faviconUrl,
-                      width: 30, height: 30,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Icon(_getCategoryIcon(item.category), color: categoryColor, size: 24),
-                    ),
-                  ),
-                  if (item.isFavorite)
-                    Positioned(
-                      top: 2, right: 2,
-                      child: Icon(Icons.star, color: Colors.yellow, size: 10),
-                    ),
-                ],
-              ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      itemCount: _passwords.length,
+      itemBuilder: (context, index) {
+        final item = _passwords[index];
+
+        final int secondsPassed = (DateTime.now().millisecondsSinceEpoch ~/ 1000) % 30;
+        final double progress = (30 - secondsPassed) / 30;
+        final Color progressColor = progress > 0.3 ? const Color(0xFF00FBFF) : Colors.redAccent;
+
+        final Map<String, Color> catColors = {
+          'WORK': const Color(0xFFFF00FF),
+          'FINANCE': const Color(0xFF00FF00),
+          'SOCIAL': const Color(0xFFFFFF00),
+        };
+        final Color categoryColor = catColors[item.category] ?? const Color(0xFF00FBFF);
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF16161D),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: categoryColor.withOpacity(0.15),
+              width: 1.5,
             ),
-            title: Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      item.platform.toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 13,
-                        letterSpacing: 1.2,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.4),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: ListTile(
+              contentPadding: const EdgeInsets.all(12),
+              leading: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: categoryColor.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: categoryColor.withOpacity(0.2)),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        item.faviconUrl,
+                        width: 30, height: 30,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Icon(_getCategoryIcon(item.category), color: categoryColor, size: 24),
                       ),
                     ),
-                  ),
-                  if (item.isTravelSafe)
-                    const Icon(Icons.shield_rounded, color: Color(0xFF00FBFF), size: 14),
-                ],
-              ),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.username,
-                  style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12, fontFamily: 'monospace'),
+                    if (item.isFavorite)
+                      Positioned(
+                        top: 2, right: 2,
+                        child: Icon(Icons.star, color: Colors.yellow, size: 10),
+                      ),
+                  ],
                 ),
-
-                if (item.otpSeed?.isNotEmpty ?? false) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.black26,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.white10),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Icon(Icons.fingerprint, size: 12, color: Color(0xFF00FBFF)),
-                            Text(
-                              "SECURE_TOKEN",
-                              style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 8, letterSpacing: 1),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Builder(builder: (context) {
-                          String code = "------";
-                          try {
-                            final secret = _getTotpSecretPlainCached(item);
-                            final meta = _getTotpMetaOrDefault(item);
-                            if (secret != null) {
-                              code = OTP.generateTOTPCodeString(
-                                secret, _totpNowMs,
-                                interval: meta.period,
-                                length: meta.digits,
-                                algorithm: _mapAlgorithm(meta.algorithm),
-                                isGoogle: true,
-                              ).replaceAllMapped(RegExp(r".{3}"), (m) => "${m.group(0)} ");
-                            }
-                          } catch (_) {}
-                          
-                          return Text(
-                            code,
-                            style: const TextStyle(
-                              color: Color(0xFF00FBFF),
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              fontFamily: 'monospace',
-                              letterSpacing: 2,
-                            ),
-                          );
-                        }),
-                        const SizedBox(height: 8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            minHeight: 2,
-                            backgroundColor: Colors.white.withOpacity(0.05),
-                            valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            trailing: PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: Colors.white38),
-              padding: EdgeInsets.zero,
-              color: const Color(0xFF1A1A23),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
               ),
-              onSelected: (value) async {
-                switch (value) {
-                  case 'favorite':
-                    _toggleFavorite(item);
-                    break;
-                    
-                  case 'view':
-                    String dec = EncryptionService.decrypt(
-                      combinedText: item.password,
-                      masterKeyBytes: widget.masterKey,
-                      onUpgrade: (v4Data) {
-                        () async {
-                          final db = await DBHelper.database;
-                          await db.update(
-                            'accounts',
-                            {
-                              'password': v4Data,
-                              'updated_at': DateTime.now().toIso8601String(),
-                            },
-                            where: 'id = ?',
-                            whereArgs: [item.id],
-                          );
-                        }();
-                      },
-                    );
+              title: Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.platform.toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                    if (item.isTravelSafe)
+                      const Icon(Icons.shield_rounded, color: Color(0xFF00FBFF), size: 14),
+                  ],
+                ),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.username,
+                    style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12, fontFamily: 'monospace'),
+                  ),
 
-                    if (item.passwordFingerprint == null || item.passwordFingerprint!.isEmpty) {
-                      final pepper = derivePepper(widget.masterKey);
-                      final fp = passwordFingerprintBase64(
-                        passwordPlaintext: dec,
-                        pepper: pepper,
-                      );
-
-                      () async {
-                        final db = await DBHelper.database;
-                        await db.update(
-                          'accounts',
-                          {
-                            'password_fp': fp,
-                            'updated_at': DateTime.now().toIso8601String(),
-                          },
-                          where: 'id = ?',
-                          whereArgs: [item.id],
-                        );
-                      }();
-                    }
-
-                    String? decryptedNotes;
-                    if (item.notes != null && item.notes!.isNotEmpty) {
-                      decryptedNotes = EncryptionService.decrypt(
-                        combinedText: item.notes!,
+                  if (item.otpSeed?.isNotEmpty ?? false) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black26,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Icon(Icons.fingerprint, size: 12, color: Color(0xFF00FBFF)),
+                              Text(
+                                "SECURE_TOKEN",
+                                style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 8, letterSpacing: 1),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Builder(builder: (context) {
+                            String code = "------";
+                            try {
+                              final secret = _getTotpSecretPlainCached(item);
+                              final meta = _getTotpMetaOrDefault(item);
+                              if (secret != null) {
+                                code = OTP.generateTOTPCodeString(
+                                  secret, _totpNowMs,
+                                  interval: meta.period,
+                                  length: meta.digits,
+                                  algorithm: _mapAlgorithm(meta.algorithm),
+                                  isGoogle: true,
+                                ).replaceAllMapped(RegExp(r".{3}"), (m) => "${m.group(0)} ");
+                              }
+                            } catch (_) {}
+                            
+                            return Text(
+                              code,
+                              style: const TextStyle(
+                                color: Color(0xFF00FBFF),
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'monospace',
+                                letterSpacing: 2,
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(2),
+                            child: LinearProgressIndicator(
+                              value: progress,
+                              minHeight: 2,
+                              backgroundColor: Colors.white.withOpacity(0.05),
+                              valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              trailing: PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, color: Colors.white38),
+                padding: EdgeInsets.zero,
+                color: const Color(0xFF1A1A23),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                onSelected: (value) async {
+                  switch (value) {
+                    case 'favorite':
+                      _toggleFavorite(item);
+                      break;
+                      
+                    case 'view':
+                      String dec = EncryptionService.decrypt(
+                        combinedText: item.password,
                         masterKeyBytes: widget.masterKey,
                         onUpgrade: (v4Data) {
                           () async {
@@ -3103,7 +3470,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             await db.update(
                               'accounts',
                               {
-                                'notes': v4Data,
+                                'password': v4Data,
                                 'updated_at': DateTime.now().toIso8601String(),
                               },
                               where: 'id = ?',
@@ -3112,168 +3479,236 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           }();
                         },
                       );
-                    }
 
-                    await DBHelper.updateLastUsed(item.id!);
-                    _onUserInteraction();
+                      if (item.passwordFingerprint == null || item.passwordFingerprint!.isEmpty) {
+                        final pepper = derivePepper(widget.masterKey);
+                        final fp = passwordFingerprintBase64(
+                          passwordPlaintext: dec,
+                          pepper: pepper,
+                        );
 
-                    if (!mounted) return;
+                        () async {
+                          final db = await DBHelper.database;
+                          await db.update(
+                            'accounts',
+                            {
+                              'password_fp': fp,
+                              'updated_at': DateTime.now().toIso8601String(),
+                            },
+                            where: 'id = ?',
+                            whereArgs: [item.id],
+                          );
+                        }();
+                      }
 
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        backgroundColor: const Color(0xFF0A0A0E),
-                        shape: RoundedRectangleBorder(
-                          side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        title: Text("> ${item.platform}",
-                            style: const TextStyle(color: Colors.white, fontSize: 16)),
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('USERNAME:',
-                                style: TextStyle(color: Colors.white54, fontSize: 10)),
-                            SelectableText(item.username,
-                                style: const TextStyle(color: Colors.white70, fontSize: 14)),
-                            const SizedBox(height: 15),
-                            const Text('PASSWORD:',
-                                style: TextStyle(color: Colors.white54, fontSize: 10)),
-                            SelectableText(dec,
-                                style: const TextStyle(
-                                    color: Color(0xFF00FBFF),
-                                    fontSize: 18,
-                                    fontFamily: 'monospace')),
-                            if (decryptedNotes != null) ...[
-                              const SizedBox(height: 15),
-                              const Text('NOTES:',
-                                  style: TextStyle(color: Colors.white54, fontSize: 10)),
-                              SelectableText(
-                                decryptedNotes,
-                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      String? decryptedNotes;
+                      if (item.notes != null && item.notes!.isNotEmpty) {
+                        decryptedNotes = EncryptionService.decrypt(
+                          combinedText: item.notes!,
+                          masterKeyBytes: widget.masterKey,
+                          onUpgrade: (v4Data) {
+                            () async {
+                              final db = await DBHelper.database;
+                              await db.update(
+                                'accounts',
+                                {
+                                  'notes': v4Data,
+                                  'updated_at': DateTime.now().toIso8601String(),
+                                },
+                                where: 'id = ?',
+                                whereArgs: [item.id],
+                              );
+                            }();
+                          },
+                        );
+                      }
+
+                      await DBHelper.updateLastUsed(item.id!);
+                      _onUserInteraction();
+
+                      if (!mounted) return;
+
+                      showDialog(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          backgroundColor: const Color(0xFF0A0A0E),
+                          shape: RoundedRectangleBorder(
+                            side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          title: Row(
+                            children: [
+                              const Text("> ", style: TextStyle(color: Color(0xFF00FBFF))),
+                              Expanded(
+                                child: Text(
+                                  item.platform.toUpperCase(),
+                                  style: const TextStyle(color: Colors.white, fontSize: 16, fontFamily: 'monospace'),
+                                ),
                               ),
                             ],
+                          ),
+                          content: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              TweenAnimationBuilder<double>(
+                                tween: Tween(begin: 0.0, end: 1.0),
+                                duration: const Duration(milliseconds: 1200),
+                                builder: (context, value, _) => LinearProgressIndicator(
+                                  value: value,
+                                  backgroundColor: Colors.white10,
+                                  color: const Color(0xFF00FBFF).withOpacity(0.5),
+                                  minHeight: 1,
+                                ),
+                              ),
+                              const SizedBox(height: 15),
+                              const Text('USERNAME:', style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1)),
+                              SelectableText(item.username, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                              const SizedBox(height: 20),                        
+                              const Text('PASSWORD:', style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1)),
+                              CyberTypewriterText(
+                                text: dec,
+                                style: const TextStyle(
+                                  color: Color(0xFF00FBFF),
+                                  fontSize: 18,
+                                  fontFamily: 'monospace',
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+
+                              if (decryptedNotes != null) ...[
+                                const SizedBox(height: 20),
+                                const Text('SECURE_NOTES:', style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1)),
+                                CyberTypewriterText(
+                                  text: decryptedNotes!,
+                                  speed: const Duration(milliseconds: 15),
+                                  style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'monospace'),
+                                ),
+                              ],
+                            ],
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text(
+                                'TERMINATE_SESSION',
+                                style: TextStyle(color: Colors.white30, fontSize: 11, fontFamily: 'monospace'),
+                              ),
+                            ),
                           ],
                         ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('CLOSE'),
-                          ),
-                        ],
-                      ),
-                    );
-                    break;
-                    
-                  case 'copy':
-                    String dec = EncryptionService.decrypt(combinedText: item.password, masterKeyBytes: widget.masterKey);
-                    await Clipboard.setData(ClipboardData(text: dec));
-                    await DBHelper.updateLastUsed(item.id!);
-                    _onUserInteraction();
-                    
-                    _clipboardTimer?.cancel();
-                    _showSuccessSnackBar("DATA_COPIED: 30s AUTO_CLEAR");
-                    
-                    _clipboardTimer = Timer(const Duration(seconds: 30), () async {
-                      await Clipboard.setData(const ClipboardData(text: ""));
-                    });
-                    break;
-                    
-                  case 'recovery':
-                    _showRecoveryManager(item.id!, item.platform);
-                    break;
-                    
-                  case 'history':
-                    _showPasswordHistory(item);
-                    break;
-                    
-                  case 'edit':
-                    _showForm(existingPassword: item);
-                    break;
+                      );
+                      break;
+                      
+                    case 'copy':
+                      String dec = EncryptionService.decrypt(combinedText: item.password, masterKeyBytes: widget.masterKey);
+                      await Clipboard.setData(ClipboardData(text: dec));
+                      await DBHelper.updateLastUsed(item.id!);
+                      _onUserInteraction();
+                      
+                      _clipboardTimer?.cancel();
+                      _showSuccessSnackBar("DATA_COPIED: 30s AUTO_CLEAR");
+                      
+                      _clipboardTimer = Timer(const Duration(seconds: 30), () async {
+                        await Clipboard.setData(const ClipboardData(text: ""));
+                      });
+                      break;
+                      
+                    case 'recovery':
+                      _showRecoveryManager(item.id!, item.platform);
+                      break;
+                      
+                    case 'history':
+                      _showPasswordHistory(item);
+                      break;
+                      
+                    case 'edit':
+                      _showForm(existingPassword: item);
+                      break;
 
-                  case 'travel_safe':
-                    final db = await DBHelper.database;
-                    await db.update(
-                      'accounts',
-                      {'is_travel_safe': item.isTravelSafe ? 0 : 1},
-                      where: 'id = ?',
-                      whereArgs: [item.id],
-                    );
-                    _loadPasswords();
-                    _showSuccessSnackBar(item.isTravelSafe ? "NODE_REMOVED_FROM_SAFE_LIST" : "NODE_MARKED_AS_TRAVEL_SAFE");
-                    break;
-                    
-                  case 'delete':
-                    bool? confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        backgroundColor: const Color(0xFF0A0A0E),
-                        shape: RoundedRectangleBorder(
-                          side: const BorderSide(color: Colors.red, width: 1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        title: const Text('> CONFIRM_DELETE', 
-                                        style: TextStyle(color: Colors.red, fontFamily: 'monospace', fontSize: 14)),
-                        content: Text('Delete ${item.platform}?',
-                                    style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            child: const Text('CANCEL', style: TextStyle(color: Colors.white54)),
-                          ),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red,
-                              foregroundColor: Colors.white,
-                            ),
-                            onPressed: () => Navigator.pop(context, true),
-                            child: const Text('DELETE', style: TextStyle(fontWeight: FontWeight.bold)),
-                          ),
-                        ],
-                      ),
-                    );
-                    
-                    if (confirm == true) {
+                    case 'travel_safe':
                       final db = await DBHelper.database;
-                      await db.delete('accounts', where: 'id = ?', whereArgs: [item.id]);
+                      await db.update(
+                        'accounts',
+                        {'is_travel_safe': item.isTravelSafe ? 0 : 1},
+                        where: 'id = ?',
+                        whereArgs: [item.id],
+                      );
                       _loadPasswords();
-                      _showSuccessSnackBar("NODE_DELETED");
-                    }
-                    break;
-                }
-              },
-              itemBuilder: (context) => [
-                _buildPopupItem('view', Icons.remove_red_eye_outlined, 'VIEW_PASSWORD', color: const Color(0xFF00FBFF)),
-                _buildPopupItem('copy', Icons.copy_all_rounded, 'COPY_PASSWORD'),
-                const PopupMenuDivider(height: 1),
-                _buildPopupItem(
-                  'favorite', 
-                  item.isFavorite ? Icons.star : Icons.star_border, 
-                  item.isFavorite ? 'REMOVE_FAVORITE' : 'MARK_FAVORITE', 
-                  color: item.isFavorite ? Colors.yellow : Colors.white70
-                ),
-                _buildPopupItem(
-                  'travel_safe', 
-                  Icons.flight_takeoff_rounded, 
-                  item.isTravelSafe ? 'DISABLE_TRAVEL_MODE' : 'ENABLE_TRAVEL_MODE',
-                  color: item.isTravelSafe ? const Color(0xFF00FBFF) : Colors.white70
-                ),
-                const PopupMenuDivider(height: 1),
-                _buildPopupItem('recovery', Icons.emergency_rounded, 'RECOVERY_CODES', color: const Color(0xFFFF00FF)),
-                if (item.passwordHistory != null && item.passwordHistory!.isNotEmpty)
-                  _buildPopupItem('history', Icons.history_rounded, 'VIEW_HISTORY', color: const Color(0xFF00FF00)),
-                const PopupMenuDivider(height: 1),
-                _buildPopupItem('edit', Icons.edit_note_rounded, 'EDIT_ENTRY'),
-                _buildPopupItem('delete', Icons.delete_forever_rounded, 'DELETE_NODE', color: Colors.redAccent),
-              ],
+                      _showSuccessSnackBar(item.isTravelSafe ? "NODE_REMOVED_FROM_SAFE_LIST" : "NODE_MARKED_AS_TRAVEL_SAFE");
+                      break;
+                      
+                    case 'delete':
+                      bool? confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          backgroundColor: const Color(0xFF0A0A0E),
+                          shape: RoundedRectangleBorder(
+                            side: const BorderSide(color: Colors.red, width: 1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          title: const Text('> CONFIRM_DELETE', 
+                                          style: TextStyle(color: Colors.red, fontFamily: 'monospace', fontSize: 14)),
+                          content: Text('Delete ${item.platform}?',
+                                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: const Text('CANCEL', style: TextStyle(color: Colors.white54)),
+                            ),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () => Navigator.pop(context, true),
+                              child: const Text('DELETE', style: TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                        ),
+                      );
+                      
+                      if (confirm == true) {
+                        final db = await DBHelper.database;
+                        await db.delete('accounts', where: 'id = ?', whereArgs: [item.id]);
+                        _loadPasswords();
+                        _showSuccessSnackBar("NODE_DELETED");
+                      }
+                      break;
+                  }
+                },
+                itemBuilder: (context) => [
+                  _buildPopupItem('view', Icons.remove_red_eye_outlined, 'VIEW_PASSWORD', color: const Color(0xFF00FBFF)),
+                  _buildPopupItem('copy', Icons.copy_all_rounded, 'COPY_PASSWORD'),
+                  const PopupMenuDivider(height: 1),
+                  _buildPopupItem(
+                    'favorite', 
+                    item.isFavorite ? Icons.star : Icons.star_border, 
+                    item.isFavorite ? 'REMOVE_FAVORITE' : 'MARK_FAVORITE', 
+                    color: item.isFavorite ? Colors.yellow : Colors.white70
+                  ),
+                  _buildPopupItem(
+                    'travel_safe', 
+                    Icons.flight_takeoff_rounded, 
+                    item.isTravelSafe ? 'DISABLE_TRAVEL_MODE' : 'ENABLE_TRAVEL_MODE',
+                    color: item.isTravelSafe ? const Color(0xFF00FBFF) : Colors.white70
+                  ),
+                  const PopupMenuDivider(height: 1),
+                  _buildPopupItem('recovery', Icons.emergency_rounded, 'RECOVERY_CODES', color: const Color(0xFFFF00FF)),
+                  if (item.passwordHistory != null && item.passwordHistory!.isNotEmpty)
+                    _buildPopupItem('history', Icons.history_rounded, 'VIEW_HISTORY', color: const Color(0xFF00FF00)),
+                  const PopupMenuDivider(height: 1),
+                  _buildPopupItem('edit', Icons.edit_note_rounded, 'EDIT_ENTRY'),
+                  _buildPopupItem('delete', Icons.delete_forever_rounded, 'DELETE_NODE', color: Colors.redAccent),
+                ],
+              ),
             ),
           ),
-        ),
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 
   PopupMenuItem<String> _buildPopupItem(String value, IconData icon, String text, {Color? color}) {
     return PopupMenuItem(
@@ -3314,7 +3749,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _onUserInteraction();
         showModalBottomSheet(
           context: context,
-          backgroundColor: Colors.transparent, // Transparente para usar el diseño custom
+          backgroundColor: Colors.transparent,
           isScrollControlled: true,
           builder: (context) => Container(
             decoration: BoxDecoration(
@@ -3410,15 +3845,4 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
     );
   }
-}
-
-class SecurityController {
-  static final SecurityController _instance = SecurityController._internal();
-  factory SecurityController() => _instance;
-  SecurityController._internal();
-
-  bool shouldLockOnLeave = true;
-
-  void pauseLocking() => shouldLockOnLeave = false;
-  void resumeLocking() => shouldLockOnLeave = true;
 }
