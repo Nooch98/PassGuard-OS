@@ -144,7 +144,7 @@ How the current dashboard works:
 >
 > Entropy values, breach estimates, and crack-time calculations are heuristic and should be interpreted as guidance, not guarantees.
 
-<img width="1919" height="1079" alt="Captura de pantalla 2026-03-24 013720" src="https://github.com/user-attachments/assets/37d3685d-eca4-43bb-a881-c27c831723fa" />
+<img width="1917" height="1041" alt="Captura de pantalla 2026-04-04 063253" src="https://github.com/user-attachments/assets/3fe526f0-5954-4b1b-a404-43128dc5695d" />
 
 ### 🛠️ Custom Breach Database (Optional)
 
