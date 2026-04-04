@@ -77,6 +77,8 @@ class DashboardScreenState extends State<DashboardScreen> {
   double _animatedScore = 0.0;
 
   int _weakCount = 0, _medCount = 0, _strongCount = 0;
+  int _quantumVulnerableCount = 0;
+  int _analyzedCount = 0;
 
   @override
   void initState() {
@@ -138,6 +140,8 @@ class DashboardScreenState extends State<DashboardScreen> {
           _medCount = results['med'];
           _strongCount = results['strong'];
           _excludedCount = results['excluded'];
+          _quantumVulnerableCount = results['quantumVulnerable'] ?? 0;
+          _analyzedCount = rows.length - _excludedCount;
           _loadingStatus = "CALIBRATING_HEALTH_INDEX...";
         });
 
@@ -210,9 +214,11 @@ class DashboardScreenState extends State<DashboardScreen> {
     double totalEntropy = 0;
     int analyzedCount = 0;
     int weak = 0, med = 0, strong = 0, excluded = 0;
+    int quantumVulnerable = 0;
 
     const double hashSpeed = 1e11; 
     const int thirtyDaysInSeconds = 2592000;
+    const double quantumThreshold = 128.0;
 
     for (var row in rows) {
       final bool isExcluded = (row['is_excluded'] as int? ?? 0) == 1;
@@ -240,7 +246,12 @@ class DashboardScreenState extends State<DashboardScreen> {
       double entropy = _staticCalculateEntropy(decrypted);
       totalEntropy += entropy;
 
+      double quantumEffectiveEntropy = entropy / 2;
+      bool isQuantumVulnerable = entropy < quantumThreshold;
+      if (isQuantumVulnerable) quantumVulnerable++;
+      
       double secondsToCrack = math.pow(2, entropy) / hashSpeed;
+
       
       if (entropy < 40) weak++;
       else if (entropy < 65) med++;
@@ -267,6 +278,17 @@ class DashboardScreenState extends State<DashboardScreen> {
           risk: secondsToCrack < 3600 ? RiskLevel.critical : RiskLevel.warning, 
           reason: secondsToCrack < 3600 ? "INSTANT_CRACK_VULNERABILITY" : "LOW_COMPUTATIONAL_COST", 
           entropy: entropy
+        );
+      }
+
+      if (bestReport == null && isQuantumVulnerable) {
+        bestReport = AuditResult(
+          id: row['id'], 
+          platform: row['platform'], 
+          username: row['username'] ?? "---", 
+          risk: RiskLevel.warning,
+          reason: "GROVER_MARGIN_WEAK", 
+          entropy: entropy,
         );
       }
 
@@ -315,6 +337,7 @@ class DashboardScreenState extends State<DashboardScreen> {
       'cleanNodes': cleanNodes,
       'excludedNodes': excludedNodesInfo,
       'avgEntropy': analyzedCount > 0 ? totalEntropy / analyzedCount : 0.0,
+      'quantumVulnerable': quantumVulnerable,
       'weak': weak, 
       'med': med, 
       'strong': strong, 
@@ -407,6 +430,8 @@ class DashboardScreenState extends State<DashboardScreen> {
             _buildSecurityDistribution(),
             const SizedBox(height: 15),
             _buildCyberSummary(),
+            const SizedBox(height: 15),
+            _buildQuantumResistanceCard(),
             const SizedBox(height: 20),
             _buildHealthOverview(),
             
@@ -692,21 +717,41 @@ class DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildDetailedReportCard(AuditResult report) {
-    Color riskColor = report.risk == RiskLevel.critical ? Colors.redAccent : (report.risk == RiskLevel.warning ? Colors.orangeAccent : Colors.blueAccent);
+    const Color quantumColor = Color(0xFFAA00FF);
+    bool isQuantum = report.reason == "GROVER_MARGIN_WEAK";
+
+    Color riskColor = isQuantum 
+        ? quantumColor 
+        : (report.risk == RiskLevel.critical ? Colors.redAccent : (report.risk == RiskLevel.warning ? Colors.orangeAccent : Colors.blueAccent));
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(color: const Color(0xFF111118), border: Border(left: BorderSide(color: riskColor, width: 2))),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111118), 
+        border: Border(left: BorderSide(color: riskColor, width: 2))
+      ),
       child: ExpansionTile(
         visualDensity: VisualDensity.compact,
         tilePadding: const EdgeInsets.symmetric(horizontal: 12),
         backgroundColor: riskColor.withOpacity(0.03),
         iconColor: riskColor,
         collapsedIconColor: Colors.white24,
-        title: Text(report.platform.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-        subtitle: Row(children: [
-            Icon(Icons.warning_amber_rounded, size: 10, color: riskColor),
+        title: Text(
+          report.platform.toUpperCase(), 
+          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace')
+        ),
+        subtitle: Row(
+          children: [
+            Icon(
+              isQuantum ? Icons.auto_awesome : Icons.warning_amber_rounded, 
+              size: 10, 
+              color: riskColor
+            ),
             const SizedBox(width: 5),
-            Text(report.reason, style: TextStyle(color: riskColor.withOpacity(0.8), fontSize: 8, fontFamily: 'monospace')),
+            Text(
+              report.reason, 
+              style: TextStyle(color: riskColor.withOpacity(0.8), fontSize: 8, fontFamily: 'monospace')
+            ),
           ],
         ),
         children: [
@@ -717,25 +762,48 @@ class DashboardScreenState extends State<DashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _detailRow("IDENTIFIER", report.username),
-                _detailRow("STRENGTH", "${report.entropy.toStringAsFixed(1)} bits (Entropy)"),
+                _detailRow("STRENGTH", "${report.entropy.toStringAsFixed(1)} bits (Classic Entropy)"),
+
+                if (isQuantum)
+                  _detailRow(
+                    "GROVER_RESISTANCE", 
+                    "${(report.entropy / 2).toStringAsFixed(1)} bits (GROVER_ADJUSTED)",
+                  ),
+                
                 _detailRow("CRACK_EST", _getBruteForceEstimate(report.entropy)),
+                
                 const Divider(color: Colors.white10, height: 20),
-                Text("SECURITY_ADVISORY:", style: TextStyle(color: riskColor, fontSize: 8, fontWeight: FontWeight.bold)),
+                Text(
+                  isQuantum ? "GROVER_ADVISORY:" : "SECURITY_ADVISORY:",
+                  style: TextStyle(color: riskColor, fontSize: 8, fontWeight: FontWeight.bold)
+                ),
                 const SizedBox(height: 5),
-                Text(_getMitigation(report.reason), style: const TextStyle(color: Colors.white70, fontSize: 9, height: 1.4)),
+                Text(
+                  _getMitigation(report.reason), 
+                  style: const TextStyle(color: Colors.white70, fontSize: 9, height: 1.4)
+                ),
                 const SizedBox(height: 15),
-                Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                    TextButton(onPressed: () => _toggleExclusion(report.id, true), child: const Text("IGNORE_NODE", style: TextStyle(color: Colors.white24, fontSize: 9))),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end, 
+                  children: [
+                    TextButton(
+                      onPressed: () => _toggleExclusion(report.id, true), 
+                      child: const Text("IGNORE_NODE", style: TextStyle(color: Colors.white24, fontSize: 9))
+                    ),
                     const SizedBox(width: 10),
                     ElevatedButton.icon(
-                      icon: const Icon(Icons.auto_fix_high, size: 12),
-                      style: ElevatedButton.styleFrom(backgroundColor: riskColor.withOpacity(0.1), foregroundColor: riskColor, side: BorderSide(color: riskColor.withOpacity(0.3))),
+                      icon: Icon(isQuantum ? Icons.bolt : Icons.auto_fix_high, size: 12),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: riskColor.withOpacity(0.1), 
+                        foregroundColor: riskColor, 
+                        side: BorderSide(color: riskColor.withOpacity(0.3))
+                      ),
                       onPressed: () async {
                         final db = await DBHelper.database;
                         final maps = await db.query('accounts', where: 'id = ?', whereArgs: [report.id]);
                         if (maps.isNotEmpty) widget.onRepairRequested(PasswordModel.fromMap(maps.first));
                       }, 
-                      label: const Text("REPAIR_KEY", style: TextStyle(fontSize: 9)),
+                      label: Text(isQuantum ? "UPGRADE_ENTROPY" : "REPAIR_KEY", style: const TextStyle(fontSize: 9)),
                     ),
                   ],
                 )
@@ -831,6 +899,85 @@ class DashboardScreenState extends State<DashboardScreen> {
             const Icon(Icons.arrow_forward_ios, color: Color(0xFF00FBFF), size: 10),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildQuantumResistanceCard() {
+    int analyzedCount = _weakCount + _medCount + _strongCount;
+    int quantumSafe = analyzedCount - _quantumVulnerableCount;
+    double safetyPercentage = analyzedCount > 0 ? (quantumSafe / analyzedCount) : 1.0;
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFAA00FF).withOpacity(0.5), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFAA00FF).withOpacity(0.1),
+            blurRadius: 10,
+            spreadRadius: 2,
+          )
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.auto_awesome, color: Color(0xFFAA00FF), size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    "POST_QUANTUM_MARGIN",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontFamily: 'Orbitron',
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Color(0xFFAA00FF).withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  "${(safetyPercentage * 100).toStringAsFixed(0)}%",
+                  style: TextStyle(color: Color(0xFFAA00FF), fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 15),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: safetyPercentage,
+              backgroundColor: Colors.white10,
+              color: const Color(0xFFAA00FF),
+              minHeight: 4,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _quantumVulnerableCount > 0 
+              ? "⚠ GROVER_MARGIN_LOW: $_quantumVulnerableCount nodes below recommended entropy threshold."
+              : "✓ GROVER_MARGIN_OK: All nodes meet high-entropy security targets.",
+            style: TextStyle(
+              color: _quantumVulnerableCount > 0 ? Colors.amber.withOpacity(0.8) : Color(0xFF00FBFF),
+              fontSize: 10,
+              fontFamily: 'monospace'
+            ),
+          ),
+        ],
       ),
     );
   }
