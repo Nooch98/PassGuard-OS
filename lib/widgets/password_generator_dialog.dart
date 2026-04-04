@@ -3,35 +3,18 @@
 | PassGuard OS - PasswordGeneratorDialog
 |--------------------------------------------------------------------------
 | Description:
-|   Cyberpunk-style dialog that provides PassGuard OS "Generator Pro".
-|   Generates high-entropy credentials in multiple modes:
-|     - Random passwords (configurable charset + rules)
-|     - Diceware passphrases (offline wordlist)
-|     - PIN codes (pattern-based numeric generation)
-|
-| Responsibilities:
-|   - Render generator UI with mode selection (Password / Passphrase / PIN)
-|   - Collect generation settings (length, charset, ambiguity rules, etc.)
-|   - Invoke PasswordGeneratorPro with GeneratorOptions
-|   - Load the default offline wordlist via WordlistService (Diceware)
-|   - Display entropy estimation (bits) and visual strength indicator
-|   - Provide user actions: refresh + copy + use generated value
-|
-| Data & Performance Notes:
-|   - Wordlist is loaded from local assets (offline) once per dialog session
-|   - Generation is deterministic only per RNG seed; defaults use secure randomness
-|   - UI updates are lightweight and triggered on setting changes
+|   Cyberpunk-style dialog for PassGuard OS "Generator Pro".
+|   Generates local credentials in multiple modes:
+|     - Random passwords
+|     - Diceware-style passphrases
+|     - Numeric PINs
+|     - High-entropy mode (legacy "quantum" label in generator core)
 |
 | Security Notes:
-|   - Generated secrets are created locally (100% offline)
+|   - Generated secrets are created locally (offline)
 |   - No network calls, analytics, or telemetry
 |   - Clipboard copy is explicit and user-triggered
-|   - Entropy is an estimate (best-effort), not a formal security proof
-|
-| UI Design:
-|   - Neon cyberpunk theme with segmented modes and monospace output
-|   - Compact layout designed for mobile and desktop
-|
+|   - Entropy is an estimate, not a formal proof
 |--------------------------------------------------------------------------
 */
 
@@ -49,7 +32,7 @@ class PasswordGeneratorDialog extends StatefulWidget {
 
 class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
   int _selectedMode = 0;
-  
+
   int _passwordLength = 20;
   bool _includeUppercase = true;
   bool _includeLowercase = true;
@@ -66,6 +49,7 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
   bool _useSmartLeet = true;
 
   int _pinLength = 6;
+  int _highEntropyLength = 28;
 
   late final PasswordGeneratorPro _gen;
   GeneratedPassword? _currentResult;
@@ -118,13 +102,22 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
             avoidAmbiguous: false,
           );
           break;
+        case 3:
+          opt = GeneratorOptions(
+            mode: GeneratorMode.quantum,
+            length: _highEntropyLength,
+            avoidAmbiguous: _excludeAmbiguous,
+          );
+          break;
         default:
           opt = const GeneratorOptions(mode: GeneratorMode.random);
       }
+
       final res = _gen.generate(opt);
       setState(() => _currentResult = res);
     } catch (e) {
       debugPrint("Generation Error: $e");
+      setState(() => _currentResult = null);
     }
   }
 
@@ -146,21 +139,27 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             _buildHeader(themeColor),
-
             Flexible(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildModeSelector(),
+                    _buildModeSelector(themeColor),
                     const SizedBox(height: 20),
                     _buildOutputDisplay(res, themeColor),
                     const SizedBox(height: 25),
-                    const Text("CONFIGURATION_PARAMETERS", 
-                      style: TextStyle(color: Colors.white24, fontSize: 9, letterSpacing: 2, fontFamily: 'monospace')),
+                    const Text(
+                      "CONFIGURATION_PARAMETERS",
+                      style: TextStyle(
+                        color: Colors.white24,
+                        fontSize: 9,
+                        letterSpacing: 2,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
                     const SizedBox(height: 15),
-                    _buildSettings(),
+                    _buildSettings(themeColor),
                   ],
                 ),
               ),
@@ -173,6 +172,8 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
   }
 
   Widget _buildHeader(Color color) {
+    final bool isHighEntropyMode = _selectedMode == 3;
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -181,14 +182,34 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
       ),
       child: Row(
         children: [
-          Icon(Icons.hub_rounded, color: color, size: 20),
+          Icon(
+            isHighEntropyMode ? Icons.bolt_rounded : Icons.hub_rounded,
+            color: color,
+            size: 20,
+          ),
           const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('PASS_GEN_PRO_V3', 
-                style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.5, fontFamily: 'monospace')),
-              const Text('HIGH_ENTROPY_GENERATOR', style: TextStyle(color: Colors.white24, fontSize: 9)),
+              Text(
+                isHighEntropyMode ? 'HIGH_ENTROPY_MODE' : 'PASS_GEN_PRO_V3',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              Text(
+                isHighEntropyMode
+                    ? 'GROVER-AWARE RANDOM GENERATION'
+                    : 'LOCAL OFFLINE GENERATOR',
+                style: const TextStyle(
+                  color: Colors.white24,
+                  fontSize: 9,
+                ),
+              ),
             ],
           ),
           const Spacer(),
@@ -198,34 +219,63 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
               border: Border.all(color: color.withOpacity(0.3)),
               borderRadius: BorderRadius.circular(4),
             ),
-            child: Text('OFFLINE', style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.bold)),
+            child: Text(
+              'OFFLINE',
+              style: TextStyle(
+                color: color,
+                fontSize: 8,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           )
         ],
       ),
     );
   }
 
-  Widget _buildModeSelector() {
+  Widget _buildModeSelector(Color color) {
     return Container(
       margin: const EdgeInsets.only(top: 20),
       width: double.infinity,
       child: SegmentedButton<int>(
         segments: const [
-          ButtonSegment(value: 0, label: Text('RANDOM'), icon: Icon(Icons.shuffle, size: 14)),
-          ButtonSegment(value: 1, label: Text('PHRASE'), icon: Icon(Icons.menu_book, size: 14)),
-          ButtonSegment(value: 2, label: Text('PIN'), icon: Icon(Icons.dialpad, size: 14)),
+          ButtonSegment(
+            value: 0,
+            label: Text('RAND'),
+            icon: Icon(Icons.shuffle, size: 14),
+          ),
+          ButtonSegment(
+            value: 1,
+            label: Text('PHRSE'),
+            icon: Icon(Icons.menu_book, size: 14),
+          ),
+          ButtonSegment(
+            value: 2,
+            label: Text('PIN'),
+            icon: Icon(Icons.dialpad, size: 14),
+          ),
+          ButtonSegment(
+            value: 3,
+            label: Text('H-ENT'),
+            icon: Icon(Icons.bolt, size: 14),
+          ),
         ],
         selected: {_selectedMode},
         onSelectionChanged: (Set<int> selected) {
           setState(() => _selectedMode = selected.first);
           _generatePassword();
         },
-        style: _segmentedButtonStyle(),
+        style: _segmentedButtonStyle(color),
       ),
     );
   }
 
   Widget _buildOutputDisplay(GeneratedPassword? res, Color color) {
+    final bool isHighEntropyMode = _selectedMode == 3;
+    final double groverAdjusted =
+        ((res?.meta['groverAdjustedBits'] as num?)?.toDouble()) ??
+        ((res?.entropyBits ?? 0) / 2.0);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -233,6 +283,15 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
         color: const Color(0xFF16161D),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withOpacity(0.2)),
+        boxShadow: isHighEntropyMode
+            ? [
+                BoxShadow(
+                  color: color.withOpacity(0.08),
+                  blurRadius: 10,
+                  spreadRadius: 1,
+                )
+              ]
+            : null,
       ),
       child: Column(
         children: [
@@ -244,10 +303,10 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 22,
+                    fontSize: 20,
                     fontFamily: 'monospace',
                     fontWeight: FontWeight.bold,
-                    letterSpacing: 1.5,
+                    letterSpacing: 1.2,
                   ),
                 ),
               ),
@@ -259,8 +318,8 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
           ),
           const SizedBox(height: 20),
           Row(
-            children: List.generate(4, (index) {
-              bool active = (res?.entropyBits ?? 0) > (index * 32);
+            children: List.generate(5, (index) {
+              final bool active = (res?.entropyBits ?? 0) > (index * 32);
               return Expanded(
                 child: Container(
                   height: 4,
@@ -277,10 +336,45 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildStat("${res?.entropyBits.toInt() ?? 0} bits", "ENTROPY", color),
-              _buildStat(res?.crackTime.toUpperCase() ?? "N/A", "CRACK_TIME", color),
+              _buildStat(
+                "${res?.entropyBits.toInt() ?? 0} bits",
+                "ENTROPY_EST",
+                color,
+              ),
+              _buildStat(
+                res?.crackTime.toUpperCase() ?? "N/A",
+                "OFFLINE_EST",
+                color,
+              ),
+              if (isHighEntropyMode)
+                _buildStat(
+                  "${groverAdjusted.toStringAsFixed(0)} bits",
+                  "GROVER_MARGIN",
+                  color,
+                ),
             ],
           ),
+          if (isHighEntropyMode) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.03),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: const Text(
+                "This mode generates a very high-entropy random password. "
+                "It is NOT post-quantum cryptography; the extra metric is only a Grover-adjusted estimate.",
+                style: TextStyle(
+                  color: Colors.white60,
+                  fontSize: 10,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -291,24 +385,45 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(color: Colors.white24, fontSize: 8)),
-        Text(val, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+        Text(
+          val,
+          style: TextStyle(
+            color: color,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'monospace',
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildSettings() {
+  Widget _buildSettings(Color color) {
     switch (_selectedMode) {
-      case 0: return _buildRandomPanel();
-      case 1: return _buildPhrasePanel();
-      case 2: return _buildPinPanel();
-      default: return const SizedBox();
+      case 0:
+        return _buildRandomPanel(color);
+      case 1:
+        return _buildPhrasePanel(color);
+      case 2:
+        return _buildPinPanel(color);
+      case 3:
+        return _buildHighEntropyPanel(color);
+      default:
+        return const SizedBox();
     }
   }
 
-  Widget _buildRandomPanel() {
+  Widget _buildRandomPanel(Color color) {
     return Column(
       children: [
-        _buildSliderSetting("CHAR_LENGTH", _passwordLength, 8, 64, (v) => setState(() => _passwordLength = v.toInt())),
+        _buildSliderSetting(
+          "CHAR_LENGTH",
+          _passwordLength,
+          8,
+          64,
+          color,
+          (v) => setState(() => _passwordLength = v.toInt()),
+        ),
         const SizedBox(height: 10),
         GridView.count(
           shrinkWrap: true,
@@ -316,41 +431,51 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
           crossAxisCount: 2,
           childAspectRatio: 3.5,
           children: [
-            _buildToggle("A-Z", _includeUppercase, (v) => setState(() => _includeUppercase = v!)),
-            _buildToggle("a-z", _includeLowercase, (v) => setState(() => _includeLowercase = v!)),
-            _buildToggle("0-9", _includeNumbers, (v) => setState(() => _includeNumbers = v!)),
-            _buildToggle("!@#", _includeSymbols, (v) => setState(() => _includeSymbols = v!)),
+            _buildToggle("A-Z", _includeUppercase, color, (v) => setState(() => _includeUppercase = v!)),
+            _buildToggle("a-z", _includeLowercase, color, (v) => setState(() => _includeLowercase = v!)),
+            _buildToggle("0-9", _includeNumbers, color, (v) => setState(() => _includeNumbers = v!)),
+            _buildToggle("!@#", _includeSymbols, color, (v) => setState(() => _includeSymbols = v!)),
           ],
         ),
-        _buildToggle("AVOID_AMBIGUOUS", _excludeAmbiguous, (v) => setState(() => _excludeAmbiguous = v!)),
+        _buildToggle("AVOID_AMBIGUOUS", _excludeAmbiguous, color, (v) => setState(() => _excludeAmbiguous = v!)),
+        _buildToggle("ENFORCE_ALL_SETS", _enforceAllSets, color, (v) => setState(() => _enforceAllSets = v!)),
       ],
     );
   }
 
-  Widget _buildPhrasePanel() {
+  Widget _buildPhrasePanel(Color color) {
     return Column(
       children: [
-        _buildSliderSetting("WORD_COUNT", _wordCount, 3, 10, (v) => setState(() => _wordCount = v.toInt())),
+        _buildSliderSetting(
+          "WORD_COUNT",
+          _wordCount,
+          4,
+          10,
+          color,
+          (v) => setState(() => _wordCount = v.toInt()),
+        ),
         const SizedBox(height: 10),
-        _buildToggle("CAPITALIZE", _diceCapitalize, (v) => setState(() => _diceCapitalize = v!)),
-        _buildToggle("SMART_LEET", _useSmartLeet, (v) => setState(() => _useSmartLeet = v!)),
-        _buildToggle("ADD_NUMBER", _diceAddNumber, (v) => setState(() => _diceAddNumber = v!)),
-      ],
-    );
-  }
-
-  Widget _buildPinPanel() {
-    return Column(
-      children: [
-        _buildSliderSetting("PIN_LENGTH", _pinLength, 4, 16, (v) => setState(() => _pinLength = v.toInt())),
+        _buildToggle("CAPITALIZE", _diceCapitalize, color, (v) => setState(() => _diceCapitalize = v!)),
+        _buildToggle("SMART_LEET", _useSmartLeet, color, (v) => setState(() => _useSmartLeet = v!)),
+        _buildToggle("ADD_NUMBER", _diceAddNumber, color, (v) => setState(() => _diceAddNumber = v!)),
+        _buildToggle("ADD_SYMBOL", _diceAddSymbol, color, (v) => setState(() => _diceAddSymbol = v!)),
+        const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: Colors.orange.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
+          decoration: BoxDecoration(
+            color: Colors.blueAccent.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(8),
+          ),
           child: const Row(
             children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 16),
+              Icon(Icons.info_outline, color: Colors.blueAccent, size: 16),
               SizedBox(width: 10),
-              Expanded(child: Text("Numeric PINs have lower entropy than alphanumeric strings.", style: TextStyle(color: Colors.orange, fontSize: 10))),
+              Expanded(
+                child: Text(
+                  "Passphrases are easier to remember. Strength depends heavily on wordlist size and word count.",
+                  style: TextStyle(color: Colors.white70, fontSize: 10),
+                ),
+              ),
             ],
           ),
         )
@@ -358,33 +483,147 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
     );
   }
 
-  Widget _buildSliderSetting(String label, int val, double min, double max, Function(double) onChg) {
+  Widget _buildPinPanel(Color color) {
+    return Column(
+      children: [
+        _buildSliderSetting(
+          "PIN_LENGTH",
+          _pinLength,
+          4,
+          16,
+          color,
+          (v) => setState(() => _pinLength = v.toInt()),
+        ),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.orange.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 16),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  "Numeric PINs have much lower entropy than random alphanumeric passwords.",
+                  style: TextStyle(color: Colors.orange, fontSize: 10),
+                ),
+              ),
+            ],
+          ),
+        )
+      ],
+    );
+  }
+
+  Widget _buildHighEntropyPanel(Color color) {
+    return Column(
+      children: [
+        _buildSliderSetting(
+          "TARGET_LENGTH",
+          _highEntropyLength,
+          20,
+          64,
+          color,
+          (v) => setState(() => _highEntropyLength = v.toInt()),
+        ),
+        const SizedBox(height: 15),
+        _buildToggle(
+          "AVOID_AMBIGUOUS",
+          _excludeAmbiguous,
+          color,
+          (v) => setState(() => _excludeAmbiguous = v!),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withOpacity(0.2)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.bolt, color: color, size: 16),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  "High-Entropy mode forces uppercase, lowercase, digits, and symbols to maximize random search space. "
+                  "The Grover margin shown is a heuristic estimate, not a post-quantum guarantee.",
+                  style: TextStyle(color: Colors.white60, fontSize: 10),
+                ),
+              ),
+            ],
+          ),
+        )
+      ],
+    );
+  }
+
+  Widget _buildSliderSetting(
+    String label,
+    int val,
+    double min,
+    double max,
+    Color color,
+    Function(double) onChg,
+  ) {
     return Column(
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'monospace')),
-            Text(val.toString(), style: const TextStyle(color: Color(0xFF00FBFF), fontWeight: FontWeight.bold)),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+                fontFamily: 'monospace',
+              ),
+            ),
+            Text(
+              val.toString(),
+              style: TextStyle(color: color, fontWeight: FontWeight.bold),
+            ),
           ],
         ),
         Slider(
           value: val.toDouble(),
-          min: min, max: max,
+          min: min,
+          max: max,
           divisions: (max - min).toInt(),
-          activeColor: const Color(0xFF00FBFF),
-          onChanged: (v) { onChg(v); _generatePassword(); },
+          activeColor: color,
+          onChanged: (v) {
+            onChg(v);
+            _generatePassword();
+          },
         ),
       ],
     );
   }
 
-  Widget _buildToggle(String label, bool value, Function(bool?) onChg) {
+  Widget _buildToggle(
+    String label,
+    bool value,
+    Color color,
+    Function(bool?) onChg,
+  ) {
     return CheckboxListTile(
-      title: Text(label, style: const TextStyle(color: Colors.white, fontSize: 11, fontFamily: 'monospace')),
+      title: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontFamily: 'monospace',
+        ),
+      ),
       value: value,
-      onChanged: (v) { onChg(v); _generatePassword(); },
-      activeColor: const Color(0xFF00FBFF),
+      onChanged: (v) {
+        onChg(v);
+        _generatePassword();
+      },
+      activeColor: color,
       checkColor: Colors.black,
       dense: true,
       contentPadding: EdgeInsets.zero,
@@ -395,13 +634,18 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
   Widget _buildActionButtons(GeneratedPassword? res, Color color) {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(border: Border(top: BorderSide(color: Colors.white))),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Colors.white10)),
+      ),
       child: Row(
         children: [
           Expanded(
             child: TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('ABORT', style: TextStyle(color: Colors.white38, fontSize: 12)),
+              child: const Text(
+                'ABORT',
+                style: TextStyle(color: Colors.white38, fontSize: 12),
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -414,9 +658,13 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
                 foregroundColor: Colors.black,
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                elevation: _selectedMode == 3 ? 6 : 0,
               ),
               icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
-              label: const Text('USE_GENERATED', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              label: const Text(
+                'USE_GENERATED',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+              ),
             ),
           ),
         ],
@@ -426,22 +674,42 @@ class _PasswordGeneratorDialogState extends State<PasswordGeneratorDialog> {
 
   Color _getStrengthColor(StrengthLevel? strength) {
     switch (strength) {
-      case StrengthLevel.weak: return Colors.redAccent;
-      case StrengthLevel.fair: return Colors.orangeAccent;
-      case StrengthLevel.good: return Colors.yellowAccent;
-      case StrengthLevel.strong: return const Color(0xFF00FBFF);
-      case StrengthLevel.overkill: return const Color(0xFF00FF00);
-      default: return const Color(0xFF00FBFF);
+      case StrengthLevel.weak:
+        return Colors.redAccent;
+      case StrengthLevel.fair:
+        return Colors.orangeAccent;
+      case StrengthLevel.good:
+        return Colors.yellowAccent;
+      case StrengthLevel.strong:
+        return const Color(0xFF00FBFF);
+      case StrengthLevel.overkill:
+        return const Color(0xFF00FF00);
+      case StrengthLevel.ultra:
+        return const Color(0xFFD000FF);
+      default:
+        return const Color(0xFF00FBFF);
     }
   }
 
-  ButtonStyle _segmentedButtonStyle() {
+  ButtonStyle _segmentedButtonStyle(Color themeColor) {
     return ButtonStyle(
-      textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-      backgroundColor: WidgetStateProperty.resolveWith((states) =>
-          states.contains(WidgetState.selected) ? const Color(0xFF00FBFF) : Colors.transparent),
-      foregroundColor: WidgetStateProperty.resolveWith((states) =>
-          states.contains(WidgetState.selected) ? Colors.black : Colors.white38),
+      textStyle: WidgetStateProperty.all(
+        const TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+          fontFamily: 'monospace',
+        ),
+      ),
+      backgroundColor: WidgetStateProperty.resolveWith((states) {
+        return states.contains(WidgetState.selected)
+            ? themeColor
+            : Colors.transparent;
+      }),
+      foregroundColor: WidgetStateProperty.resolveWith((states) {
+        return states.contains(WidgetState.selected)
+            ? Colors.black
+            : Colors.white38;
+      }),
     );
   }
 }
