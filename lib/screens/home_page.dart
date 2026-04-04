@@ -2968,7 +2968,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       onPanUpdate: (_) => _onUserInteraction(),
       child: Scaffold(
         backgroundColor: const Color(0xFF050505),
-        extendBody: true, 
+        extendBody: false,
         appBar: AppBar(
           backgroundColor: const Color(0xFF050505),
           elevation: 0,
@@ -3093,19 +3093,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
 
         body: SafeArea(
-          bottom: false,
-          child: IndexedStack(
-            index: _selectedIndex,
-            children: [
-              _buildPasswordList(),
-              IdentitiesVaultScreen(key: _identitiesKey, masterKey: widget.masterKey),
-              DashboardScreen(key: _dashboardKey, masterKey: widget.masterKey, onRepairRequested: (model) => _showForm(existingPassword: model)),
-            ],
+          bottom: true,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 16.0),
+            child: IndexedStack(
+              index: _selectedIndex,
+              children: [
+                _buildPasswordList(),
+                IdentitiesVaultScreen(key: _identitiesKey, masterKey: widget.masterKey),
+                DashboardScreen(
+                    key: _dashboardKey,
+                    masterKey: widget.masterKey,
+                    onRepairRequested: (model) => _showForm(existingPassword: model)
+                ),
+              ],
+            ),
           ),
         ),
 
         bottomNavigationBar: Container(
-          padding: EdgeInsets.only(bottom: systemPadding.bottom > 0 ? systemPadding.bottom : 8),
+          padding: EdgeInsets.only(bottom: systemPadding.bottom > 0 ? systemPadding.bottom : 0),
           decoration: BoxDecoration(
             color: const Color(0xFF0A0A0E).withOpacity(0.95),
             border: const Border(
@@ -3165,7 +3172,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
         floatingActionButtonLocation: FloatingActionButtonLocation.startDocked,
         floatingActionButton: Padding(
-          padding: EdgeInsets.only(bottom: systemPadding.bottom > 0 ? 10 : 0),
+          padding: EdgeInsets.only(bottom: systemPadding.bottom > 0 ? 0 : 10),
           child: _buildTabSpecificFab(),
         ),
       ),
@@ -3288,7 +3295,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      padding: const EdgeInsets.fromLTRB(14, 16, 14, 100),
       itemCount: _passwords.length,
       itemBuilder: (context, index) {
         final item = _passwords[index];
