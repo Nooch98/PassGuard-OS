@@ -26,6 +26,7 @@ import 'package:local_auth/local_auth.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:passguard/main.dart';
+import 'package:passguard/services/security_controller.dart';
 
 import '../services/auth_service.dart';
 import '../services/db_helper.dart';
