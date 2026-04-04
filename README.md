@@ -18,6 +18,7 @@
 
 ## 📑 Table of Contents
 
+- [Galery](#galery)
 - [What is PassGuard OS?](#what-is-passguard-os)
     - [Why PassGuard OS?](#why-passguard-os)
 - [Features](#features)
@@ -42,6 +43,32 @@
 - [Priority Areas for v1.x](#priority-areas-for-v1x)
 - [Disclaimer](#disclaimer)
 - [FAQ](#faq)
+
+## Galery
+
+<details>
+  <summary><b>[VIEW] ACCOUNTS_INDEX_MODULE (Desktop & Android)</b></summary>
+  <p align="center">
+    <img width="500" alt="ACCOUNTS_INDEX_DESKTOP" src="https://github.com/user-attachments/assets/afcbfa00-f701-49c1-bac5-8ff9ed4562c4" />
+    <img width="230" alt="ACCOUNTS_INDEX_ANDROID" src="https://github.com/user-attachments/assets/e947f890-40d1-430b-aaf9-695b6bcb7335" />
+  </p>
+</details>
+
+<details>
+  <summary><b>[VIEW] SECURITY_DASHBOARD_ANALYTICS (Desktop & Android)</b></summary>
+  <p align="center">
+    <img width="500" alt="SECURITY_DASHBOARD_DESKTOP" src="https://github.com/user-attachments/assets/f02f6cd1-dadd-4567-9f65-dcbd977a8acc" />
+    <img width="230" alt="SECURITY_DASHBOARD_ANDROID" src="https://github.com/user-attachments/assets/d116613a-d1c7-4870-909a-8675ced00844" />
+  </p>
+</details>
+
+<details>
+  <summary><b>[VIEW] PASSWORD_GENERATOR_PROTOCOL (Same on Desktop & Android)</b></summary>
+  <p align="center">
+    <img width="500" alt="PASSWORD_GENERATOR" src="https://github.com/user-attachments/assets/64e73daa-b6da-4a2a-be9f-39b3306a49af" />
+  </p>
+</details>
+
 
 ## What is PassGuard OS?
 
