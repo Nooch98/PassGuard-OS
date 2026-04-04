@@ -105,9 +105,10 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 | Panic Mode | Emergency wipe triggered by password or biometric |
 | Screenshot Protection | Prevents screenshots on Android |
 | Failed Login Lockout | 5 Attempts = 30-second lockout |
-| Entropy Analysis | Shannon Entropy calculation to measure mathematical unpredictability. |
+| Entropy Analysis | Approximate entropy estimation based on detected character classes and generator structure |
 | Isolate Computing | Offloads decryption and audit tasks to a separate CPU thread to prevent memory-sniffing on the main thread during idle. |
-| Brute-Force Estimator | Real-time calculation of "Time-to-Crack" based on 100 GH/s attack vectors. |
+| Brute-Force Estimator | Theoretical offline crack-time estimate using a fixed benchmark |
+| Grover-Adjusted Margin | Optional heuristic view for very high-entropy credentials under simplified advanced attack assumptions |
 
 ### Stealth Protocol (Travel Mode)
 PassGuard OS implements a **Plausible Deniability** layer through its Stealth Protocol. Unlike standard "Travel Modes" that show only what is marked, our logic is **Inverted for maximum discretion**:
@@ -145,6 +146,25 @@ How the current dashboard works:
 > Entropy values, breach estimates, and crack-time calculations are heuristic and should be interpreted as guidance, not guarantees.
 
 <img width="1917" height="1041" alt="Captura de pantalla 2026-04-04 063253" src="https://github.com/user-attachments/assets/3fe526f0-5954-4b1b-a404-43128dc5695d" />
+
+### High-Entropy / Grover-Aware Analysis
+
+PassGuard OS now includes a **Grover-adjusted margin view** in the dashboard for entries generated or evaluated under very high-entropy criteria.
+
+What this means in practice:
+
+- The app can display a **Grover-adjusted entropy estimate** derived from the classical entropy score
+- This is intended as a **heuristic comparison tool** for advanced attack models
+- It helps identify entries whose entropy margin may be too small under a simplified quadratic-speedup assumption
+
+What it does **not** mean:
+
+- It is **not** a claim of post-quantum certification
+- It is **not** proof that a password is “quantum safe”
+- It is **not** a replacement for strong password length, randomness, and good vault cryptography
+
+> [!NOTE]
+> The Grover-adjusted view is a **best-effort estimate** based on entropy heuristics. It should be treated as guidance, not as a formal cryptographic guarantee.
 
 ### 🛠️ Custom Breach Database (Optional)
 
@@ -221,20 +241,40 @@ if __name__ == "__main__":
 
 ### Password Management
 * **Advanced Password Generator**
-    * Random Passwords (8-64 characters)
-    * Memorable passphrases (4-6 words)
-    * PIN Codes (4-12 digits)
-    * Real-time strength analysis
-    * Exclude ambiguous characteres option
+    * Random passwords (8-64 characters)
+    * Diceware-style passphrases (4-10 words)
+    * Numeric PIN codes (4-16 digits)
+    * Pattern-based generation
+    * High-Entropy mode for users who want a larger random search space by default
+    * Optional ambiguous-character filtering
+    * Optional character-set enforcement for random mode
+    * Real-time entropy estimate and strength indicator
+
+* **Generator Modes**
+    * **Random**: standard high-entropy generator using enabled character sets
+    * **Passphrase**: offline wordlist-based Diceware-style generation
+    * **PIN**: numeric-only generation for platform PIN use cases
+    * **High-Entropy**: forces uppercase, lowercase, digits, and symbols to maximize random search space and exposes a Grover-adjusted heuristic margin
+
+> [!IMPORTANT]
+> The High-Entropy mode is **not post-quantum cryptography**.
+> It is a very high-entropy random password mode with an additional **Grover-adjusted estimate** shown for comparison under advanced attack assumptions.
+
 * **2FA/TOTP Support**
     * QR code scanning for authenticator codes
     * Real-time TOTP code generation
     * 30-second countdown timer
+
 * **Password Health Dashboard**
     * Weak password detection
-    * Reuse detection
-    * Old password alerts (90+ days)
-    * Overall security score (0-100)
+    * Password reuse detection
+    * Known-breach detection using a local SHA-1 prefix database
+    * Keyboard pattern detection (`qwerty`, `asdfgh`, `zxcvbn`, `123456`, `qazwsx`)
+    * Exclusion manager for ignored nodes
+    * Travel Mode-aware visible audit scoring
+    * Grover-adjusted margin display for high-entropy analysis views
+    * Overall integrity score (0-100)
+
 * **Organization Tools**
     * Categories: Personal, Work, Finance, Social
     * Favorites system
@@ -428,6 +468,21 @@ I provide a bash script(`Register_Extension_Linux.sh`) to handle registration au
 5. Save
 ```
 
+#### Using the High-Entropy Generator
+
+```text
+1. Open Generator Pro
+2. Select H-ENT mode
+3. Adjust target length
+4. Optionally enable ambiguous-character filtering
+5. Generate and review:
+   - estimated entropy
+   - offline crack-time estimate
+   - Grover-adjusted margin
+```
+> [!IMPORTANT]
+> H-ENT mode is designed to generate a very high-entropy random password. It should be understood as a stronger random-password preset, not as “post-quantum cryptography”.
+
 #### Enabling 2FA
 ```
 1. Tap + → "Scan QR 2FA"
@@ -508,6 +563,31 @@ graph TD
 * Data Handling: Native Byte buffers (`Uint8List`) to prevent "String-in-memory" persistence.
 * Random generator: Dart Random.secure() (CSPRNG)
 
+### Password Generator Security Model
+
+PassGuard OS includes several local generation strategies:
+
+- **Random mode**: best default option for raw entropy
+- **Passphrase mode**: better memorability, strength depends on word count and wordlist size
+- **PIN mode**: convenience-focused, much lower entropy
+- **Pattern mode**: flexible but can be weak if the pattern is predictable
+- **High-Entropy mode**: forces all major character classes and aims for a large random search space
+
+The High-Entropy mode also exposes a **Grover-adjusted margin** in metadata and UI.
+
+This should be interpreted as:
+
+- a **future-facing heuristic**
+- useful for comparison between strong generated passwords
+- **not** a claim of formal post-quantum security
+
+> [!WARNING]
+> Password generation is only one layer of security. Final resistance still depends on:
+> - whether the output is truly random
+> - the KDF protecting the vault
+> - host security
+> - absence of keyloggers or memory compromise
+
 ### What PassGuard OS Store & How
 
 | Data Type | Current Storage | Current Protection |
@@ -556,6 +636,14 @@ PassGuard OS categorizes risks using a priority-queue logic, ensuring that the m
 4. 🟠 **WARNING: Keyboard Patterns**
    * **Finding:** Detection of predictable sequential patterns (e.g., `qwerty`, `asdfgh`, `123456`).
    * **Risk:** Even if the password is long, brute-force algorithms prioritize these patterns, making them significantly easier to crack than random strings.
+  
+5. 🟣 **INFO / WARNING: Grover-Adjusted Margin**
+   * **Finding:** For very high-entropy credentials, the dashboard can also display a Grover-adjusted margin as a heuristic for advanced attack scenarios.
+   * **Interpretation:** This is not a direct measure of “post-quantum safety”, but an estimate of how much entropy margin remains under a simplified quadratic-speedup model.
+   * **Use Case:** Helps users understand whether a very strong password still keeps a wide security margin under more aggressive future-facing assumptions.
+  
+> [!IMPORTANT]
+> Grover-adjusted values are **heuristic estimates only**. They are shown as an educational and comparative metric, not as a formal statement of post-quantum resistance.
 
 > [!TIP]
 > **Stealth Logic in Audits:** > When the Stealth Protocol is **ON**, accounts marked as sensitive are excluded from the `TOTAL_NODES` and `HEALTH_SCORE`. This ensures that even if your hidden accounts have weak passwords, they won't lower the visible score, maintaining your "Security Cover".
@@ -583,6 +671,7 @@ PassGuard OS is a personal project following a Zero-Knowledge and Offline-First 
 * **Input Interception (Keyloggers)**: Software-based keyloggers on the host OS can capture the Master Password during entry.
 * **Advanced Persistent Threats (APTs)**: Designed for personal use, not targeted state-level surveillance.
 * **Browser-Level Memory**: While `sessionStorage` is isolated, an attacker with full control over the browser process or a malicious extension with broad permissions could theoretically access the temporary username stored during a multi-step login.
+* **High-Entropy Generator**: The new High-Entropy generator mode can also show a Grover-adjusted margin for advanced attack modeling. This is intended as a heuristic educational metric, not as a certification of post-quantum resistance.
 
 ```mermaid
 graph LR
