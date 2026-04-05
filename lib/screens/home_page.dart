@@ -77,6 +77,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   String? _filterCategory;
   bool _showFavoritesOnly = false;
+  late PageController _pageController;
 
   final Map<int, String?> _totpSecretCache = {};
 
@@ -86,6 +87,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: _selectedIndex);
     WidgetsBinding.instance.addObserver(this);
     _loadPasswords();
 
@@ -96,7 +98,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _totpTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       setState(() => _totpNowMs = DateTime.now().millisecondsSinceEpoch);
     });
-    
+
     _applyScreenshotProtection();
   }
 
@@ -107,6 +109,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _totpTimer?.cancel();
     _searchController.dispose();
     _clipboardTimer?.cancel();
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -3093,11 +3096,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
 
         body: SafeArea(
-          bottom: true,
+          bottom: false,
           child: Padding(
             padding: const EdgeInsets.only(top: 16.0),
-            child: IndexedStack(
-              index: _selectedIndex,
+            child: PageView(
+              controller: _pageController,
+              physics: const NeverScrollableScrollPhysics(),
+              onPageChanged: (index) {
+                setState(() => _selectedIndex = index);
+              },
               children: [
                 _buildPasswordList(),
                 IdentitiesVaultScreen(key: _identitiesKey, masterKey: widget.masterKey),
@@ -3127,12 +3134,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ],
           ),
           child: BottomNavigationBar(
-            currentIndex: _selectedIndex,
             onTap: (index) {
               HapticFeedback.mediumImpact();
-              setState(() => _selectedIndex = index);
               _onUserInteraction();
+              _pageController.animateToPage(
+                index,
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOutQuart,
+              );
             },
+            currentIndex: _selectedIndex,
             elevation: 0,
             backgroundColor: Colors.transparent,
             selectedItemColor: const Color(0xFF00FBFF),
@@ -3170,7 +3181,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         ),
 
-        floatingActionButtonLocation: FloatingActionButtonLocation.startDocked,
+        floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
         floatingActionButton: Padding(
           padding: EdgeInsets.only(bottom: systemPadding.bottom > 0 ? 0 : 10),
           child: _buildTabSpecificFab(),
@@ -3180,12 +3191,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget? _buildTabSpecificFab() {
+    Widget? fab;
+
     switch (_selectedIndex) {
       case 0:
-        return _buildFabPasswords();
-          
+        fab = _buildFabPasswords();
+        break;
       case 1:
-        return FloatingActionButton(
+        fab = FloatingActionButton(
+          key: const ValueKey('fab_id'),
           heroTag: "fab_id",
           backgroundColor: const Color(0xFF00FBFF),
           child: const Icon(Icons.add_moderator, color: Colors.black),
@@ -3194,21 +3208,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _identitiesKey.currentState?.showIdentityFormExternal();
           },
         );
-          
+        break;
       case 2:
-        return FloatingActionButton(
+        fab = FloatingActionButton(
+          key: const ValueKey('fab_dash'),
           heroTag: "fab_dash",
           backgroundColor: const Color(0xFF00FBFF),
           child: const Icon(Icons.refresh_sharp, color: Colors.black),
           onPressed: () {
             _onUserInteraction();
-            _dashboardKey.currentState?.performSecurityAudit(); 
+            _dashboardKey.currentState?.performSecurityAudit();
           },
         );
-          
-      default:
-        return null;
+        break;
     }
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return ScaleTransition(scale: animation, child: child);
+      },
+      child: fab,
+    );
   }
 
   String? _getTotpSecretPlainCached(PasswordModel item) {
