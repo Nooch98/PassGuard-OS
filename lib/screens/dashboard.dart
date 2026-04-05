@@ -401,6 +401,24 @@ class DashboardScreenState extends State<DashboardScreen> {
     return _auditReports.where((r) => r.risk == _selectedFilter).toList();
   }
 
+  Widget _animateEntry({required Widget child, required int delay}) {
+    return TweenAnimationBuilder<double>(
+      duration: Duration(milliseconds: 500 + (delay * 100)),
+      tween: Tween(begin: 0.0, end: 1.0),
+      curve: Curves.easeOutQuart,
+      builder: (context, value, childWidget) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 20 * (1 - value)),
+            child: childWidget,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return _buildLoadingScreen();
@@ -411,38 +429,38 @@ class DashboardScreenState extends State<DashboardScreen> {
         onRefresh: performSecurityAudit,
         color: const Color(0xFF00FBFF),
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
           children: [
             FutureBuilder<bool>(
               future: AuthService.getTravelModeEnabled(),
               builder: (context, snapshot) {
                 if (snapshot.data == true) {
-                  return _buildTravelModeWarning();
+                  return _animateEntry(child: (_buildTravelModeWarning()), delay: 0);
                 }
                 return const SizedBox.shrink();
               },
             ),
             const SizedBox(height: 10),
-            _buildSectionTitle("INTEGRITY_INDEX", Icons.analytics_outlined),
+            _animateEntry(child: _buildSectionTitle("INTEGRITY_INDEX", Icons.analytics_outlined), delay: 1),
             const SizedBox(height: 15),
-            _buildAdvancedGauge(),
+            _animateEntry(child: _buildAdvancedGauge(), delay: 2),
             const SizedBox(height: 15),
-            _buildSecurityDistribution(),
+            _animateEntry(child: _buildSecurityDistribution(), delay: 3),
             const SizedBox(height: 15),
-            _buildCyberSummary(),
+            _animateEntry(child: (_buildCyberSummary()), delay: 4),
             const SizedBox(height: 15),
-            _buildQuantumResistanceCard(),
+            _animateEntry(child: (_buildQuantumResistanceCard()), delay: 5),
             const SizedBox(height: 20),
-            _buildHealthOverview(),
+            _animateEntry(child: (_buildHealthOverview()), delay: 6),
             
             const SizedBox(height: 25),
-            _buildSectionTitle("THREAT_LOG", Icons.security),
+            _animateEntry(child: (_buildSectionTitle("THREAT_LOG", Icons.security)), delay: 7),
             const SizedBox(height: 10),
-            _buildFilterChips(),
+            _animateEntry(child: (_buildFilterChips()), delay: 8),
             const SizedBox(height: 10),
             
-            if (_filteredReports.isEmpty) 
-            _buildNoThreatsCard()
+            if (_filteredReports.isEmpty)
+              _animateEntry(child: (_buildNoThreatsCard()), delay: 9)
           else 
             ..._filteredReports.asMap().entries.map((entry) {
               int index = entry.key;
@@ -465,12 +483,11 @@ class DashboardScreenState extends State<DashboardScreen> {
 
             if (_excludedCount > 0) ...[
               const SizedBox(height: 30),
-              _buildSectionTitle("VAULT_EXCLUSIONS", Icons.visibility_off_outlined),
+              _animateEntry(child: (_buildSectionTitle("VAULT_EXCLUSIONS", Icons.visibility_off_outlined)), delay: 10),
               const SizedBox(height: 10),
-              _buildExceptionInfoCard(),
+              _animateEntry(child: (_buildExceptionInfoCard()), delay: 11),
             ],
-            
-            const SizedBox(height: 100),
+            const SizedBox(height: 20),
           ],
         ),
       ),
