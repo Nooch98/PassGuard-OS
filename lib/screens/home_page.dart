@@ -3332,207 +3332,181 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         };
         final Color categoryColor = catColors[item.category] ?? const Color(0xFF00FBFF);
 
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF16161D),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: categoryColor.withOpacity(0.15),
-              width: 1.5,
+        return TweenAnimationBuilder<double>(
+          duration: Duration(milliseconds: 400 + (index * 60).clamp(0, 500)),
+          tween: Tween(begin: 0.0, end: 1.0),
+          curve: Curves.easeOutQuart,
+          builder: (context, animValue, child) {
+            return Opacity(
+              opacity: animValue,
+              child: Transform.translate(
+                offset: Offset(30 * (1 - animValue), 0),
+                child: child,
+              ),
+            );
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF16161D),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: categoryColor.withOpacity(0.15),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.4),
+                  blurRadius: 10,
+                  offset: const Offset(0, 6),
+                ),
+              ],
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.4),
-                blurRadius: 10,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(12),
-              leading: Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: categoryColor.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: categoryColor.withOpacity(0.2)),
-                ),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        item.faviconUrl,
-                        width: 30, height: 30,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Icon(_getCategoryIcon(item.category), color: categoryColor, size: 24),
-                      ),
-                    ),
-                    if (item.isFavorite)
-                      Positioned(
-                        top: 2, right: 2,
-                        child: Icon(Icons.star, color: Colors.yellow, size: 10),
-                      ),
-                  ],
-                ),
-              ),
-              title: Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        item.platform.toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 13,
-                          letterSpacing: 1.2,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(12),
+                leading: Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: categoryColor.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: categoryColor.withOpacity(0.2)),
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          item.faviconUrl,
+                          width: 30, height: 30,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Icon(_getCategoryIcon(item.category), color: categoryColor, size: 24),
                         ),
                       ),
-                    ),
-                    if (item.isTravelSafe)
-                      const Icon(Icons.shield_rounded, color: Color(0xFF00FBFF), size: 14),
-                  ],
-                ),
-              ),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.username,
-                    style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12, fontFamily: 'monospace'),
+                      if (item.isFavorite)
+                        const Positioned(
+                          top: 2, right: 2,
+                          child: Icon(Icons.star, color: Colors.yellow, size: 10),
+                        ),
+                    ],
                   ),
-
-                  if (item.otpSeed?.isNotEmpty ?? false) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.black26,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.white10),
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Icon(Icons.fingerprint, size: 12, color: Color(0xFF00FBFF)),
-                              Text(
-                                "SECURE_TOKEN",
-                                style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 8, letterSpacing: 1),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Builder(builder: (context) {
-                            String code = "------";
-                            try {
-                              final secret = _getTotpSecretPlainCached(item);
-                              final meta = _getTotpMetaOrDefault(item);
-                              if (secret != null) {
-                                code = OTP.generateTOTPCodeString(
-                                  secret, _totpNowMs,
-                                  interval: meta.period,
-                                  length: meta.digits,
-                                  algorithm: _mapAlgorithm(meta.algorithm),
-                                  isGoogle: true,
-                                ).replaceAllMapped(RegExp(r".{3}"), (m) => "${m.group(0)} ");
-                              }
-                            } catch (_) {}
-                            
-                            return Text(
-                              code,
-                              style: const TextStyle(
-                                color: Color(0xFF00FBFF),
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'monospace',
-                                letterSpacing: 2,
-                              ),
-                            );
-                          }),
-                          const SizedBox(height: 8),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(2),
-                            child: LinearProgressIndicator(
-                              value: progress,
-                              minHeight: 2,
-                              backgroundColor: Colors.white.withOpacity(0.05),
-                              valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              trailing: PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, color: Colors.white38),
-                padding: EdgeInsets.zero,
-                color: const Color(0xFF1A1A23),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
                 ),
-                onSelected: (value) async {
-                  switch (value) {
-                    case 'favorite':
-                      _toggleFavorite(item);
-                      break;
-                      
-                    case 'view':
-                      String dec = EncryptionService.decrypt(
-                        combinedText: item.password,
-                        masterKeyBytes: widget.masterKey,
-                        onUpgrade: (v4Data) {
-                          () async {
-                            final db = await DBHelper.database;
-                            await db.update(
-                              'accounts',
-                              {
-                                'password': v4Data,
-                                'updated_at': DateTime.now().toIso8601String(),
-                              },
-                              where: 'id = ?',
-                              whereArgs: [item.id],
-                            );
-                          }();
-                        },
-                      );
+                title: Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          item.platform.toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 13,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ),
+                      if (item.isTravelSafe)
+                        const Icon(Icons.shield_rounded, color: Color(0xFF00FBFF), size: 14),
+                    ],
+                  ),
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.username,
+                      style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12, fontFamily: 'monospace'),
+                    ),
 
-                      if (item.passwordFingerprint == null || item.passwordFingerprint!.isEmpty) {
-                        final pepper = derivePepper(widget.masterKey);
-                        final fp = passwordFingerprintBase64(
-                          passwordPlaintext: dec,
-                          pepper: pepper,
-                        );
-
-                        () async {
-                          final db = await DBHelper.database;
-                          await db.update(
-                            'accounts',
-                            {
-                              'password_fp': fp,
-                              'updated_at': DateTime.now().toIso8601String(),
-                            },
-                            where: 'id = ?',
-                            whereArgs: [item.id],
-                          );
-                        }();
-                      }
-
-                      String? decryptedNotes;
-                      if (item.notes != null && item.notes!.isNotEmpty) {
-                        decryptedNotes = EncryptionService.decrypt(
-                          combinedText: item.notes!,
+                    if (item.otpSeed?.isNotEmpty ?? false) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black26,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white10),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Icon(Icons.fingerprint, size: 12, color: Color(0xFF00FBFF)),
+                                Text(
+                                  "SECURE_TOKEN",
+                                  style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 8, letterSpacing: 1),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Builder(builder: (context) {
+                              String code = "------";
+                              try {
+                                final secret = _getTotpSecretPlainCached(item);
+                                final meta = _getTotpMetaOrDefault(item);
+                                if (secret != null) {
+                                  code = OTP.generateTOTPCodeString(
+                                    secret, _totpNowMs,
+                                    interval: meta.period,
+                                    length: meta.digits,
+                                    algorithm: _mapAlgorithm(meta.algorithm),
+                                    isGoogle: true,
+                                  ).replaceAllMapped(RegExp(r".{3}"), (m) => "${m.group(0)} ");
+                                }
+                              } catch (_) {}
+                              
+                              return AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 300),
+                                transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+                                child: Text(
+                                  code,
+                                  key: ValueKey(code),
+                                  style: const TextStyle(
+                                    color: Color(0xFF00FBFF),
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'monospace',
+                                    letterSpacing: 2,
+                                  ),
+                                ),
+                              );
+                            }),
+                            const SizedBox(height: 8),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(2),
+                              child: LinearProgressIndicator(
+                                value: progress,
+                                minHeight: 2,
+                                backgroundColor: Colors.white.withOpacity(0.05),
+                                valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                trailing: PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, color: Colors.white38),
+                  padding: EdgeInsets.zero,
+                  color: const Color(0xFF1A1A23),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  onSelected: (value) async {
+                    switch (value) {
+                      case 'favorite':
+                        _toggleFavorite(item);
+                        break;
+                        
+                      case 'view':
+                        String dec = EncryptionService.decrypt(
+                          combinedText: item.password,
                           masterKeyBytes: widget.masterKey,
                           onUpgrade: (v4Data) {
                             () async {
@@ -3540,7 +3514,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               await db.update(
                                 'accounts',
                                 {
-                                  'notes': v4Data,
+                                  'password': v4Data,
                                   'updated_at': DateTime.now().toIso8601String(),
                                 },
                                 where: 'id = ?',
@@ -3549,187 +3523,230 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             }();
                           },
                         );
-                      }
 
-                      await DBHelper.updateLastUsed(item.id!);
-                      _onUserInteraction();
+                        if (item.passwordFingerprint == null || item.passwordFingerprint!.isEmpty) {
+                          final pepper = derivePepper(widget.masterKey);
+                          final fp = passwordFingerprintBase64(
+                            passwordPlaintext: dec,
+                            pepper: pepper,
+                          );
 
-                      if (!mounted) return;
+                          () async {
+                            final db = await DBHelper.database;
+                            await db.update(
+                              'accounts',
+                              {
+                                'password_fp': fp,
+                                'updated_at': DateTime.now().toIso8601String(),
+                              },
+                              where: 'id = ?',
+                              whereArgs: [item.id],
+                            );
+                          }();
+                        }
 
-                      showDialog(
-                        context: context,
-                        builder: (_) => AlertDialog(
-                          backgroundColor: const Color(0xFF0A0A0E),
-                          shape: RoundedRectangleBorder(
-                            side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          title: Row(
-                            children: [
-                              const Text("> ", style: TextStyle(color: Color(0xFF00FBFF))),
-                              Expanded(
-                                child: Text(
-                                  item.platform.toUpperCase(),
-                                  style: const TextStyle(color: Colors.white, fontSize: 16, fontFamily: 'monospace'),
-                                ),
-                              ),
-                            ],
-                          ),
-                          content: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              TweenAnimationBuilder<double>(
-                                tween: Tween(begin: 0.0, end: 1.0),
-                                duration: const Duration(milliseconds: 1200),
-                                builder: (context, value, _) => LinearProgressIndicator(
-                                  value: value,
-                                  backgroundColor: Colors.white10,
-                                  color: const Color(0xFF00FBFF).withOpacity(0.5),
-                                  minHeight: 1,
-                                ),
-                              ),
-                              const SizedBox(height: 15),
-                              const Text('USERNAME:', style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1)),
-                              SelectableText(item.username, style: const TextStyle(color: Colors.white70, fontSize: 14)),
-                              const SizedBox(height: 20),                        
-                              const Text('PASSWORD:', style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1)),
-                              CyberTypewriterText(
-                                text: dec,
-                                style: const TextStyle(
-                                  color: Color(0xFF00FBFF),
-                                  fontSize: 18,
-                                  fontFamily: 'monospace',
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
+                        String? decryptedNotes;
+                        if (item.notes != null && item.notes!.isNotEmpty) {
+                          decryptedNotes = EncryptionService.decrypt(
+                            combinedText: item.notes!,
+                            masterKeyBytes: widget.masterKey,
+                            onUpgrade: (v4Data) {
+                              () async {
+                                final db = await DBHelper.database;
+                                await db.update(
+                                  'accounts',
+                                  {
+                                    'notes': v4Data,
+                                    'updated_at': DateTime.now().toIso8601String(),
+                                  },
+                                  where: 'id = ?',
+                                  whereArgs: [item.id],
+                                );
+                              }();
+                            },
+                          );
+                        }
 
-                              if (decryptedNotes != null) ...[
-                                const SizedBox(height: 20),
-                                const Text('SECURE_NOTES:', style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1)),
-                                CyberTypewriterText(
-                                  text: decryptedNotes!,
-                                  speed: const Duration(milliseconds: 15),
-                                  style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'monospace'),
+                        await DBHelper.updateLastUsed(item.id!);
+                        _onUserInteraction();
+
+                        if (!mounted) return;
+
+                        showDialog(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            backgroundColor: const Color(0xFF0A0A0E),
+                            shape: RoundedRectangleBorder(
+                              side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            title: Row(
+                              children: [
+                                const Text("> ", style: TextStyle(color: Color(0xFF00FBFF))),
+                                Expanded(
+                                  child: Text(
+                                    item.platform.toUpperCase(),
+                                    style: const TextStyle(color: Colors.white, fontSize: 16, fontFamily: 'monospace'),
+                                  ),
                                 ),
                               ],
+                            ),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                TweenAnimationBuilder<double>(
+                                  tween: Tween(begin: 0.0, end: 1.0),
+                                  duration: const Duration(milliseconds: 1200),
+                                  builder: (context, value, _) => LinearProgressIndicator(
+                                    value: value,
+                                    backgroundColor: Colors.white10,
+                                    color: const Color(0xFF00FBFF).withOpacity(0.5),
+                                    minHeight: 1,
+                                  ),
+                                ),
+                                const SizedBox(height: 15),
+                                const Text('USERNAME:', style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1)),
+                                SelectableText(item.username, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                                const SizedBox(height: 20),                        
+                                const Text('PASSWORD:', style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1)),
+                                CyberTypewriterText(
+                                  text: dec,
+                                  style: const TextStyle(
+                                    color: Color(0xFF00FBFF),
+                                    fontSize: 18,
+                                    fontFamily: 'monospace',
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+
+                                if (decryptedNotes != null) ...[
+                                  const SizedBox(height: 20),
+                                  const Text('SECURE_NOTES:', style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1)),
+                                  CyberTypewriterText(
+                                    text: decryptedNotes!,
+                                    speed: const Duration(milliseconds: 15),
+                                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'monospace'),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text(
+                                  'TERMINATE_SESSION',
+                                  style: TextStyle(color: Colors.white30, fontSize: 11, fontFamily: 'monospace'),
+                                ),
+                              ),
                             ],
                           ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text(
-                                'TERMINATE_SESSION',
-                                style: TextStyle(color: Colors.white30, fontSize: 11, fontFamily: 'monospace'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                      break;
-                      
-                    case 'copy':
-                      String dec = EncryptionService.decrypt(combinedText: item.password, masterKeyBytes: widget.masterKey);
-                      await Clipboard.setData(ClipboardData(text: dec));
-                      await DBHelper.updateLastUsed(item.id!);
-                      _onUserInteraction();
-                      
-                      _clipboardTimer?.cancel();
-                      _showSuccessSnackBar("DATA_COPIED: 30s AUTO_CLEAR");
-                      
-                      _clipboardTimer = Timer(const Duration(seconds: 30), () async {
-                        await Clipboard.setData(const ClipboardData(text: ""));
-                      });
-                      break;
-                      
-                    case 'recovery':
-                      _showRecoveryManager(item.id!, item.platform);
-                      break;
-                      
-                    case 'history':
-                      _showPasswordHistory(item);
-                      break;
-                      
-                    case 'edit':
-                      _showForm(existingPassword: item);
-                      break;
+                        );
+                        break;
+                        
+                      case 'copy':
+                        String dec = EncryptionService.decrypt(combinedText: item.password, masterKeyBytes: widget.masterKey);
+                        await Clipboard.setData(ClipboardData(text: dec));
+                        await DBHelper.updateLastUsed(item.id!);
+                        _onUserInteraction();
+                        
+                        _clipboardTimer?.cancel();
+                        _showSuccessSnackBar("DATA_COPIED: 30s AUTO_CLEAR");
+                        
+                        _clipboardTimer = Timer(const Duration(seconds: 30), () async {
+                          await Clipboard.setData(const ClipboardData(text: ""));
+                        });
+                        break;
+                        
+                      case 'recovery':
+                        _showRecoveryManager(item.id!, item.platform);
+                        break;
+                        
+                      case 'history':
+                        _showPasswordHistory(item);
+                        break;
+                        
+                      case 'edit':
+                        _showForm(existingPassword: item);
+                        break;
 
-                    case 'travel_safe':
-                      final db = await DBHelper.database;
-                      await db.update(
-                        'accounts',
-                        {'is_travel_safe': item.isTravelSafe ? 0 : 1},
-                        where: 'id = ?',
-                        whereArgs: [item.id],
-                      );
-                      _loadPasswords();
-                      _showSuccessSnackBar(item.isTravelSafe ? "NODE_REMOVED_FROM_SAFE_LIST" : "NODE_MARKED_AS_TRAVEL_SAFE");
-                      break;
-                      
-                    case 'delete':
-                      bool? confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          backgroundColor: const Color(0xFF0A0A0E),
-                          shape: RoundedRectangleBorder(
-                            side: const BorderSide(color: Colors.red, width: 1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          title: const Text('> CONFIRM_DELETE', 
-                                          style: TextStyle(color: Colors.red, fontFamily: 'monospace', fontSize: 14)),
-                          content: Text('Delete ${item.platform}?',
-                                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, false),
-                              child: const Text('CANCEL', style: TextStyle(color: Colors.white54)),
-                            ),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                                foregroundColor: Colors.white,
-                              ),
-                              onPressed: () => Navigator.pop(context, true),
-                              child: const Text('DELETE', style: TextStyle(fontWeight: FontWeight.bold)),
-                            ),
-                          ],
-                        ),
-                      );
-                      
-                      if (confirm == true) {
+                      case 'travel_safe':
                         final db = await DBHelper.database;
-                        await db.delete('accounts', where: 'id = ?', whereArgs: [item.id]);
+                        await db.update(
+                          'accounts',
+                          {'is_travel_safe': item.isTravelSafe ? 0 : 1},
+                          where: 'id = ?',
+                          whereArgs: [item.id],
+                        );
                         _loadPasswords();
-                        _showSuccessSnackBar("NODE_DELETED");
-                      }
-                      break;
-                  }
-                },
-                itemBuilder: (context) => [
-                  _buildPopupItem('view', Icons.remove_red_eye_outlined, 'VIEW_PASSWORD', color: const Color(0xFF00FBFF)),
-                  _buildPopupItem('copy', Icons.copy_all_rounded, 'COPY_PASSWORD'),
-                  const PopupMenuDivider(height: 1),
-                  _buildPopupItem(
-                    'favorite', 
-                    item.isFavorite ? Icons.star : Icons.star_border, 
-                    item.isFavorite ? 'REMOVE_FAVORITE' : 'MARK_FAVORITE', 
-                    color: item.isFavorite ? Colors.yellow : Colors.white70
-                  ),
-                  _buildPopupItem(
-                    'travel_safe', 
-                    Icons.flight_takeoff_rounded, 
-                    item.isTravelSafe ? 'DISABLE_TRAVEL_MODE' : 'ENABLE_TRAVEL_MODE',
-                    color: item.isTravelSafe ? const Color(0xFF00FBFF) : Colors.white70
-                  ),
-                  const PopupMenuDivider(height: 1),
-                  _buildPopupItem('recovery', Icons.emergency_rounded, 'RECOVERY_CODES', color: const Color(0xFFFF00FF)),
-                  if (item.passwordHistory != null && item.passwordHistory!.isNotEmpty)
-                    _buildPopupItem('history', Icons.history_rounded, 'VIEW_HISTORY', color: const Color(0xFF00FF00)),
-                  const PopupMenuDivider(height: 1),
-                  _buildPopupItem('edit', Icons.edit_note_rounded, 'EDIT_ENTRY'),
-                  _buildPopupItem('delete', Icons.delete_forever_rounded, 'DELETE_NODE', color: Colors.redAccent),
-                ],
+                        _showSuccessSnackBar(item.isTravelSafe ? "NODE_REMOVED_FROM_SAFE_LIST" : "NODE_MARKED_AS_TRAVEL_SAFE");
+                        break;
+                        
+                      case 'delete':
+                        bool? confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            backgroundColor: const Color(0xFF0A0A0E),
+                            shape: RoundedRectangleBorder(
+                              side: const BorderSide(color: Colors.red, width: 1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            title: const Text('> CONFIRM_DELETE', 
+                                            style: TextStyle(color: Colors.red, fontFamily: 'monospace', fontSize: 14)),
+                            content: Text('Delete ${item.platform}?',
+                                        style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('CANCEL', style: TextStyle(color: Colors.white54)),
+                              ),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () => Navigator.pop(context, true),
+                                child: const Text('DELETE', style: TextStyle(fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                        );
+                        
+                        if (confirm == true) {
+                          final db = await DBHelper.database;
+                          await db.delete('accounts', where: 'id = ?', whereArgs: [item.id]);
+                          _loadPasswords();
+                          _showSuccessSnackBar("NODE_DELETED");
+                        }
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    _buildPopupItem('view', Icons.remove_red_eye_outlined, 'VIEW_PASSWORD', color: const Color(0xFF00FBFF)),
+                    _buildPopupItem('copy', Icons.copy_all_rounded, 'COPY_PASSWORD'),
+                    const PopupMenuDivider(height: 1),
+                    _buildPopupItem(
+                      'favorite', 
+                      item.isFavorite ? Icons.star : Icons.star_border, 
+                      item.isFavorite ? 'REMOVE_FAVORITE' : 'MARK_FAVORITE', 
+                      color: item.isFavorite ? Colors.yellow : Colors.white70
+                    ),
+                    _buildPopupItem(
+                      'travel_safe', 
+                      Icons.flight_takeoff_rounded, 
+                      item.isTravelSafe ? 'DISABLE_TRAVEL_MODE' : 'ENABLE_TRAVEL_MODE',
+                      color: item.isTravelSafe ? const Color(0xFF00FBFF) : Colors.white70
+                    ),
+                    const PopupMenuDivider(height: 1),
+                    _buildPopupItem('recovery', Icons.emergency_rounded, 'RECOVERY_CODES', color: const Color(0xFFFF00FF)),
+                    if (item.passwordHistory != null && item.passwordHistory!.isNotEmpty)
+                      _buildPopupItem('history', Icons.history_rounded, 'VIEW_HISTORY', color: const Color(0xFF00FF00)),
+                    const PopupMenuDivider(height: 1),
+                    _buildPopupItem('edit', Icons.edit_note_rounded, 'EDIT_ENTRY'),
+                    _buildPopupItem('delete', Icons.delete_forever_rounded, 'DELETE_NODE', color: Colors.redAccent),
+                  ],
+                ),
               ),
             ),
           ),
