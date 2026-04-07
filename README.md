@@ -22,6 +22,7 @@
 - [What is PassGuard OS?](#what-is-passguard-os)
     - [Why PassGuard OS?](#why-passguard-os)
 - [Features](#features)
+    - [Warp Sync (P2P Transfer)](#warp-sync-p2p-transfer) 
     - [Security Features](#security-features)
     - [Password Management](#password-management)
     - [Chrome/Firefox Extension (OPTIONAL)](#chromefirefox-extension-optional)
@@ -91,6 +92,23 @@ PassGuard OS is a cross-Platform, offline password manager designed for users wh
 > PassGuard OS aims to reduce risk through strong local cryptography and offline design, but it is **not professionally security audited** at this time.
 
 ## Features
+
+### Warp Sync (P2P Transfer)
+
+PassGuard Warp is a high-speed, peer-to-peer synchronization protocol designed to move your vault between devices on the same local network with **Zero-Cloud** dependency. It bypasses traditional file-sharing limits by creating a direct encrypted tunnel between nodes.
+
+#### Key Capabilities
+* **Zero-Knowledge Sync:** Your passwords never leave your local environment. No servers, no logs, no third-party providers.
+* **Hybrid Connectivity:** Connect instantly by scanning a **QR Code** or by entering the **Local IP and Session PIN** manually.
+* **High Performance:** Uses raw TCP sockets for near-instant transfer of large vaults, bypassing the data size constraints of standard QR codes.
+
+#### How to use
+1.  **Host Mode (Sender):** Select "Initialize Warp Host". Your device will display a QR code, its local IP, and a temporary Security PIN.
+2.  **Node Mode (Receiver):** On the receiving device, scan the QR or type the IP and PIN manually.
+3.  **The Warp:** Once authenticated, the vault is streamed, re-encrypted with the receiver's Master Key, and saved locally in seconds.
+
+> [!NOTE]
+> For Warp Sync to function, both devices must be on the same Wi-Fi/LAN, and the Host must have port `8888` accessible. The system automatically calls `security.resumeLocking()` once the session is terminated.
 
 ### Security Features
 | Feature | Description |
