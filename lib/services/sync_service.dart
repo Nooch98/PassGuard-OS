@@ -64,12 +64,97 @@ import '../models/recovery_code_model.dart';
 import 'db_helper.dart';
 
 class SyncService {
+  static Future<String> generateWarpPackage(
+    List<PasswordModel> passwords, 
+    Uint8List sourceMasterKey
+  ) async {
+    final List<Map<String, dynamic>> plainAccounts = [];
+    
+    for (var p in passwords) {
+      String decryptedPass = EncryptionService.decrypt(
+        combinedText: p.password, 
+        masterKeyBytes: sourceMasterKey
+      );
+
+      String? decryptedNotes;
+      if (p.notes != null && p.notes!.isNotEmpty) {
+        decryptedNotes = EncryptionService.decrypt(
+          combinedText: p.notes!, 
+          masterKeyBytes: sourceMasterKey
+        );
+      }
+
+      final accountMap = p.toMap();
+      accountMap['password'] = decryptedPass;
+      accountMap['notes'] = decryptedNotes;
+      
+      plainAccounts.add(accountMap);
+    }
+
+    final db = await DBHelper.database;
+    final List<Map<String, dynamic>> recoveryCodesRows = await db.query('recovery_codes');
+    
+    final Map<String, dynamic> vaultData = {
+      'accounts': plainAccounts,
+      'recovery_codes': recoveryCodesRows,
+      'exported_at': DateTime.now().toIso8601String(),
+      'version': '2.1-warp', 
+    };
+    
+    return jsonEncode(vaultData);
+  }
+
+  static Future<SyncImportResult> processWarpPackage(
+    String plainJson, 
+    Uint8List targetMasterKey
+  ) async {
+    try {
+      final decoded = jsonDecode(plainJson);
+      if (decoded is! Map<String, dynamic> || !decoded.containsKey('accounts')) {
+        throw "INVALID_WARP_PACKAGE";
+      }
+
+      final List<dynamic> accountsData = decoded['accounts'];
+      final List<PasswordModel> reEncryptedPasswords = [];
+
+      for (var item in accountsData) {
+        String plainPassword = item['password'];
+        String? plainNotes = item['notes'];
+
+        item['password'] = EncryptionService.encrypt(plainPassword, targetMasterKey);
+        if (plainNotes != null) {
+          item['notes'] = EncryptionService.encrypt(plainNotes, targetMasterKey);
+        }
+
+        reEncryptedPasswords.add(PasswordModel.fromMap(item));
+      }
+
+      List<RecoveryCodeModel> recoveryCodes = [];
+      if (decoded.containsKey('recovery_codes')) {
+        final List<dynamic> codesData = decoded['recovery_codes'];
+        recoveryCodes = codesData.map((item) => RecoveryCodeModel.fromMap(item)).toList();
+      }
+
+      return SyncImportResult(
+        passwords: reEncryptedPasswords,
+        recoveryCodes: recoveryCodes,
+        success: true,
+      );
+    } catch (e) {
+      return SyncImportResult(
+        passwords: [],
+        recoveryCodes: [],
+        success: false,
+        error: "WARP_PROCESS_FAILED: ${e.toString()}",
+      );
+    }
+  }
+
   static Future<String> exportSecurePackage(
     List<PasswordModel> passwords, 
     Uint8List currentMasterKey 
   ) async {
     final String rawJson = await _serializeToJSON(passwords);
-
     return EncryptionService.encrypt(rawJson, currentMasterKey);
   }
 
