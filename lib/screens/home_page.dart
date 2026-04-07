@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:passguard/screens/dashboard.dart';
 import 'package:passguard/screens/identities_vault_screen.dart';
+import 'package:passguard/services/WarpController.dart';
 import 'package:passguard/services/security_controller.dart';
 import 'package:passguard/widgets/cybertype_widget.dart';
 import 'package:path_provider/path_provider.dart';
@@ -77,12 +78,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   String? _filterCategory;
   bool _showFavoritesOnly = false;
+  String _warpStatus = "IDLE";
   late PageController _pageController;
 
   final Map<int, String?> _totpSecretCache = {};
-
   final GlobalKey<IdentitiesVaultScreenState> _identitiesKey = GlobalKey<IdentitiesVaultScreenState>();
   final GlobalKey<DashboardScreenState> _dashboardKey = GlobalKey<DashboardScreenState>();
+  final WarpController _warpController = WarpController();
 
   @override
   void initState() {
@@ -1199,6 +1201,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         label: "DATA_TRANSMISSION",
                         items: [
                           ListTile(
+                            leading: const Icon(Icons.bolt, color: Color(0xFF00FBFF)),
+                            title: const Text("INITIALIZE_WARP_SYNC_HOST", 
+                              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                            subtitle: const Text("Broadcast vault to local network nodes", 
+                              style: TextStyle(fontSize: 10, color: Colors.grey)),
+                            onTap: () { 
+                              Navigator.pop(context); 
+                              _showWarpSyncInterface(isHost: true); 
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.hub_outlined, color: Color(0xFF00FBFF)),
+                            title: const Text("JOIN_WARP_DATA_STREAM", 
+                              style: TextStyle(color: Colors.white, fontSize: 13)),
+                            subtitle: const Text("Receive and re-encrypt from active host", 
+                              style: TextStyle(fontSize: 10, color: Colors.grey)),
+                            onTap: () { 
+                              Navigator.pop(context); 
+                              _showWarpSyncInterface(isHost: false); 
+                            },
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: Divider(color: Colors.white10, height: 1),
+                          ),
+                          ListTile(
                             leading: const Icon(Icons.qr_code_2, color: Color(0xFF00FBFF)),
                             title: const Text("GENERATE_TRANSMISSION_QR", style: TextStyle(color: Colors.white, fontSize: 13)),
                             onTap: () { Navigator.pop(context); _showQRGenerator(); },
@@ -1261,6 +1289,231 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showWarpSyncInterface({required bool isHost}) {
+    final security = SecurityController();
+    String localIp = "0.0.0.0";
+    TextEditingController ipManualController = TextEditingController(text: "192.168.");
+    security.pauseLocking();
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: "WARP_SYNC",
+      barrierColor: Colors.black87,
+      transitionDuration: const Duration(milliseconds: 200),
+      pageBuilder: (context, anim1, anim2) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            if (_warpStatus == "IDLE" && isHost) {
+              setModalState(() => _warpStatus = "FETCHING_LOCAL_IP...");
+              _getLocalIp().then((ip) {
+                setModalState(() {
+                  localIp = ip;
+                  _warpStatus = "WAITING_FOR_NODE...";
+                });
+                _warpController.startHost(
+                  passwords: _passwords,
+                  masterKey: widget.masterKey,
+                  onStatusUpdate: (s) => setModalState(() => _warpStatus = s),
+                  onFinished: (success) {
+                    security.resumeLocking();
+                    if (success) _showSuccessSnackBar("TRANSMISSION_SUCCESSFUL");
+                    Navigator.pop(context);
+                  },
+                );
+              });
+            }
+
+            return Center(
+              child: Container(
+                width: MediaQuery.of(context).size.width * 0.9,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0A0A0E),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: const Color(0xFF00FBFF), width: 1.5),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(isHost ? Icons.sensors : Icons.hub_outlined, color: const Color(0xFF00FBFF), size: 42),
+                        const SizedBox(height: 12),
+                        Text(isHost ? "WARP_BROADCAST_ACTIVE" : "WARP_RECEIVER_MODE",
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 2, fontSize: 14)),
+                        const SizedBox(height: 24),
+                        if (isHost) ...[
+                          if (localIp != "0.0.0.0") ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                              child: QrImageView(data: "PASSGUARD_WARP:$localIp", version: QrVersions.auto, size: 160.0),
+                            ),
+                            const SizedBox(height: 16),
+                            Text("LOCAL_IP: $localIp", style: const TextStyle(color: Colors.white38, fontSize: 10, fontFamily: 'monospace')),
+                          ] else ...[
+                            const CircularProgressIndicator(color: Color(0xFF00FBFF)),
+                          ],
+                        ] else ...[
+                          if (_warpStatus == "IDLE" || _warpStatus.contains("READY") || _warpStatus.contains("ERROR")) ...[
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF00FBFF),
+                                foregroundColor: Colors.black,
+                                minimumSize: const Size(double.infinity, 45),
+                              ),
+                              icon: const Icon(Icons.qr_code_scanner),
+                              label: const Text("SCAN_WARP_QR"),
+                              onPressed: () => _handleWarpScanning(setModalState),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 15),
+                              child: Text("— OR MANUAL ENTRY —", style: TextStyle(color: Colors.white24, fontSize: 9)),
+                            ),
+                            TextField(
+                              controller: ipManualController,
+                              style: const TextStyle(color: Color(0xFF00FBFF), fontFamily: 'monospace', fontSize: 13),
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: Colors.black,
+                                hintText: "192.168.1.XX",
+                                hintStyle: const TextStyle(color: Colors.white10),
+                                suffixIcon: IconButton(
+                                  icon: const Icon(Icons.bolt, color: Color(0xFF00FBFF)),
+                                  onPressed: () {
+                                    _startManualConnection(ipManualController.text, setModalState);
+                                  },
+                                ),
+                                enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: Colors.white10)),
+                                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF00FBFF))),
+                              ),
+                            ),
+                          ],
+                        ],
+
+                        const SizedBox(height: 24),
+
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white10)),
+                          child: Text("> $_warpStatus", style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 10, fontFamily: 'monospace')),
+                        ),
+
+                        const SizedBox(height: 24),
+                        TextButton(
+                          onPressed: () {
+                            security.resumeLocking();
+                            _warpController.stop();
+                            _warpStatus = "IDLE";
+                            Navigator.pop(context);
+                          },
+                          child: Text(isHost ? "ABORT_BROADCAST" : "TERMINATE_SESSION", 
+                            style: const TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+        );
+      },
+    );
+  }
+
+  void _startManualConnection(String ip, Function setModalState) {
+    final security = SecurityController();
+    if (ip.trim().length < 7) {
+      setModalState(() => _warpStatus = "ERROR: INVALID_IP");
+      return;
+    }
+    
+    _warpController.startClient(
+      hostIp: ip.trim(),
+      myMasterKey: widget.masterKey,
+      onStatusUpdate: (s) => setModalState(() => _warpStatus = s),
+      onDataReceived: (result) {
+        if (result.success) {
+          security.resumeLocking();
+          _handleImportResult(result);
+          Navigator.pop(this.context);
+        }
+      },
+    );
+  }
+
+  void _handleWarpScanning(Function setModalState) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.black,
+      builder: (context) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: MobileScanner(
+          onDetect: (capture) {
+            for (final barcode in capture.barcodes) {
+              final String code = barcode.rawValue ?? "";
+              if (code.startsWith("PASSGUARD_WARP:")) {
+                final String extractedIp = code.split(":")[1];
+                Navigator.pop(context);
+                _startManualConnection(extractedIp, setModalState);
+              }
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<String> _getLocalIp() async {
+    try {
+      for (var interface in await NetworkInterface.list()) {
+        for (var addr in interface.addresses) {
+          if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
+            return addr.address;
+          }
+        }
+      }
+    } catch (e) {
+      return "127.0.0.1";
+    }
+    return "0.0.0.0";
+  }
+
+  Widget _buildNetworkStatusIndicator() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.black38,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 15, height: 15,
+            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00FBFF)),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("LOCAL_IP: 192.168.1.XX", style: TextStyle(color: Colors.white54, fontSize: 10, fontFamily: 'monospace')),
+                Text("STATUS: LISTENING_ON_PORT_8888", style: TextStyle(color: const Color(0xFF00FBFF).withOpacity(0.7), fontSize: 9, fontFamily: 'monospace')),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
