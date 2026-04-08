@@ -22,7 +22,8 @@
 - [What is PassGuard OS?](#what-is-passguard-os)
     - [Why PassGuard OS?](#why-passguard-os)
 - [Features](#features)
-    - [Warp Sync (P2P Transfer)](#warp-sync-p2p-transfer) 
+    - [Warp Sync (P2P Transfer)](#warp-sync-p2p-transfer)
+    - [PassGuard CLI (Terminal Engine)](#passguard-cli-terminal-engine)
     - [Security Features](#security-features)
     - [Password Management](#password-management)
     - [Chrome/Firefox Extension (OPTIONAL)](#chromefirefox-extension-optional)
@@ -109,6 +110,56 @@ PassGuard Warp is a high-speed, peer-to-peer synchronization protocol designed t
 
 > [!NOTE]
 > For Warp Sync to function, both devices must be on the same Wi-Fi/LAN, and the Host must have port `8888` accessible. The system automatically calls `security.resumeLocking()` once the session is terminated.
+
+### PassGuard CLI (Terminal Engine)
+PassGuard OS includes a command-line interface (CLI) for advanced users who need to manage their vault directly from the terminal. It uses the same Argon2id (v5) cryptographic engine as the graphical user interface (GUI), ensuring full compatibility and top-tier security.
+
+#### Key Features
+* **Full CRUD Support:** Create, Read, Update, and Delete vault records.
+* **Live TOTP Generator:** Generate 6-digit 2FA codes directly in your terminal.
+* **Persistent Config:** Set your database path once and the CLI will remember it.
+* **Secure Memory Handling:** Master Key bytes are wiped from RAM immediately after use.
+* **Stealth Input:** Passwords and Master Keys are hidden (no echo) while typing.
+---
+#### Installation
+1.  **Compile the binary:**
+    From the project root, execute:
+    ```bash
+    dart build cli bin/pg.dart
+    ```
+2.  **Set your Vault location:**
+    If you are using a custom database path, configure it once:
+    ```bash
+    pg config /path/to/your/passguard_v2.db
+    ```
+3.  **Add to PATH (Optional):**
+    Move the `pg` executable to a folder included in your system's PATH (e.g., `/usr/local/bin` on Unix or a dedicated tools folder on Windows).
+
+---
+
+#### Usage Guide
+| Command | Description |
+| :--- | :--- |
+| `pg list` | Displays all stored platforms and usernames. |
+| `pg get <name>` | Decrypts and shows password, notes, and TOTP. |
+| `pg 2fa <name>` | Quick access: Shows only the current 6-digit 2FA code. |
+| `pg add` | Interactive prompt to create a new encrypted record. |
+| `pg edit <name>` | Modify username or password of an existing record. |
+| `pg delete <name>` | Securely removes a record from the vault. |
+
+#### Example: Retrieving a password
+```bash
+$ pg get github
+🔍 Platform: GitHub
+👤 User: cyber_user
+🔑 Master Password: 
+────────────────────────────────────────
+🔓 Password: MySecurePassword123!
+🕒 2FA Code: 482 910 (Expires in 12s)
+────────────────────────────────────────
+```
+> [!CAUTION]
+> **Terminal Security:** Your terminal might keep a history of commands. While `pg` hides your password during input, avoid passing sensitive data as plain arguments. Always use the interactive prompts for maximum safety.
 
 ### Security Features
 | Feature | Description |
