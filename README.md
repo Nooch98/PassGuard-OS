@@ -112,7 +112,7 @@ PassGuard Warp is a high-speed, peer-to-peer synchronization protocol designed t
 > For Warp Sync to function, both devices must be on the same Wi-Fi/LAN, and the Host must have port `8888` accessible. The system automatically calls `security.resumeLocking()` once the session is terminated.
 
 ### PassGuard CLI (Terminal Engine)
-PassGuard OS includes a command-line interface (CLI) for advanced users who need to manage their vault directly from the terminal. It uses the same Argon2id (v5) cryptographic engine as the graphical user interface (GUI), ensuring full compatibility and top-tier security.
+PassGuard OS includes a command-line interface (CLI) for advanced users who need to manage their vault directly from the terminal. It uses the same Argon2id (v5) cryptographic engine as the graphical user interface (GUI), ensuring full compatibility and good security.
 
 #### Key Features
 * **Full CRUD Support:** Create, Read, Update, and Delete vault records.
