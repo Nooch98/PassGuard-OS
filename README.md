@@ -140,24 +140,65 @@ PassGuard OS includes a command-line interface (CLI) for advanced users who need
 #### Usage Guide
 | Command | Description |
 | :--- | :--- |
+| `pg help` | Displays help |
 | `pg list` | Displays all stored platforms and usernames. |
 | `pg get <name>` | Decrypts and shows password, notes, and TOTP. |
 | `pg 2fa <name>` | Quick access: Shows only the current 6-digit 2FA code. |
 | `pg add` | Interactive prompt to create a new encrypted record. |
+| `pg gen` | Displays password generator interactive menu |
 | `pg edit <name>` | Modify username or password of an existing record. |
 | `pg delete <name>` | Securely removes a record from the vault. |
+
+#### Example: Add new account
+```bash
+$ pg add
+➕ ADD NEW RECORD
+Platform: Github
+Username: Test
+Password (Leave empty to use GENERATOR):
+
+
+🎲 Generator Options:
+  [1] Random  [2] PIN (Numeric)  [3] Pronounceable  [4] High-Entropy
+Select mode (default 1): 4
+✅ Using generated: mvmR.yhP^]&(h{UL^yeWRux]3w(N,k$n
+2FA Seed (Optional):
+
+🔑 Master Password to encrypt:
+
+
+✅ Saved successfully.
+```
+#### Example: Password Generation
+```bash
+$ pg gen
+🔐 PASSGUARD GENERATOR PRO
+Select generation mode:
+  [1] Random  [2] PIN (Numeric)  [3] Pronounceable  [4] Quantum
+
+Option (default 1): 4
+
+┌──────────────────────────────────────────────────────────┐
+│ VALUE: 8jK#2mP9$LqW!r8Yt*NqW!r8Yt_zXm*Nq                 │
+├──────────────────────────────────────────────────────────┤
+│ Strength: ULTRA                                          │
+│ Entropy:  256.0 bits                                     │
+│ Crack Time: Centuries (estimate)                         │
+└──────────────────────────────────────────────────────────┘
+```
 
 #### Example: Retrieving a password
 ```bash
 $ pg get github
-🔍 Platform: GitHub
-👤 User: cyber_user
+══ DETAILS: Github ══
+User: cyber_user
 🔑 Master Password: 
 ────────────────────────────────────────
-🔓 Password: MySecurePassword123!
-🕒 2FA Code: 482 910 (Expires in 12s)
-────────────────────────────────────────
+🔓 Password: mvmR.yhP^]&(h{UL^yeWRux]3w(N,k$n
+🕒 2FA Live Mode (Press ENTER to exit)
+OTP Code: 482 910 [██████░░░░] 18s
 ```
+
 > [!CAUTION]
 > **Terminal Security:** Your terminal might keep a history of commands. While `pg` hides your password during input, avoid passing sensitive data as plain arguments. Always use the interactive prompts for maximum safety.
 
