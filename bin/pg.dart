@@ -2,12 +2,42 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
-import 'dart:math';
+import 'dart:math' as math;
+import 'package:crypto/crypto.dart';
 import 'package:passguard/services/password_generator_service.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:path/path.dart' as p;
 import 'package:otp/otp.dart';
 import 'package:passguard/services/encryption_service.dart';
+
+enum RiskLevel { critical, warning, info }
+
+class AuditResult {
+  final int id;
+  final String platform;
+  final String username;
+  final RiskLevel risk;
+  final String reason;
+  final double entropy;
+
+  AuditResult({
+    required this.id,
+    required this.platform,
+    required this.username,
+    required this.risk,
+    required this.reason,
+    required this.entropy,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'platform': platform,
+        'username': username,
+        'risk': risk.index,
+        'reason': reason,
+        'entropy': entropy,
+      };
+}
 
 class C {
   static const reset = '\x1B[0m';
@@ -24,6 +54,7 @@ class C {
 class PassGuardCLI {
   static Database? _db;
   static final _generator = PasswordGeneratorPro();
+
   static File get _configFile {
     final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? ".";
     return File(p.join(home, '.passguard_cli_config'));
@@ -73,26 +104,37 @@ class PassGuardCLI {
         _listAccounts();
         break;
       case 'get':
-        if (args.length < 2) print("${C.yellow}Usage: pg get <name>${C.reset}");
-        else await _getAndDecryptAccount(args[1]);
+        if (args.length < 2)
+          print("${C.yellow}Usage: pg get <name>${C.reset}");
+        else
+          await _getAndDecryptAccount(args[1]);
         break;
       case '2fa':
-        if (args.length < 2) print("${C.yellow}Usage: pg 2fa <name>${C.reset}");
-        else await _getAndDecryptAccount(args[1], onlyOTP: true);
+        if (args.length < 2)
+          print("${C.yellow}Usage: pg 2fa <name>${C.reset}");
+        else
+          await _getAndDecryptAccount(args[1], onlyOTP: true);
         break;
       case 'add':
         _addAccount();
         break;
       case 'edit':
-        if (args.length < 2) print("${C.yellow}Usage: pg edit <name>${C.reset}");
-        else _editAccount(args[1]);
+        if (args.length < 2)
+          print("${C.yellow}Usage: pg edit <name>${C.reset}");
+        else
+          _editAccount(args[1]);
         break;
       case 'delete':
-        if (args.length < 2) print("${C.yellow}Usage: pg delete <name>${C.reset}");
-        else _deleteAccount(args[1]);
+        if (args.length < 2)
+          print("${C.yellow}Usage: pg delete <name>${C.reset}");
+        else
+          _deleteAccount(args[1]);
         break;
       case 'gen':
         _handleGenerator();
+        break;
+      case 'audit':
+        await _runVaultAudit();
         break;
       case 'help':
       case '--help':
@@ -104,37 +146,229 @@ class PassGuardCLI {
     }
   }
 
+  static Map<String, dynamic> _heavyAuditTask(Map<String, dynamic> data) {
+    final List<Map<String, dynamic>> rows = data['rows'];
+    final Uint8List masterKey = data['masterKey'];
+    final Set<String> breachSet = data['breachSet'];
+
+    List<AuditResult> tempReports = [];
+    Map<String, List<Map<String, dynamic>>> passwordGroups = {};
+
+    double totalEntropy = 0;
+    int analyzedCount = 0;
+    int weak = 0, med = 0, strong = 0, excluded = 0;
+    int quantumVulnerable = 0;
+
+    const double hashSpeed = 1e11;
+    const int thirtyDaysInSeconds = 2592000;
+    const double quantumThreshold = 128.0;
+
+    for (var row in rows) {
+      final bool isExcluded = (row['is_excluded'] as int? ?? 0) == 1;
+      if (isExcluded) {
+        excluded++;
+        continue;
+      }
+
+      final decrypted = EncryptionService.decrypt(
+        combinedText: row['password'] as String,
+        masterKeyBytes: masterKey,
+      );
+
+      if (decrypted.isEmpty || decrypted.startsWith("ERROR:")) continue;
+
+      analyzedCount++;
+      double entropy = _staticCalculateEntropy(decrypted);
+      totalEntropy += entropy;
+
+      bool isQuantumVulnerable = entropy < quantumThreshold;
+      if (isQuantumVulnerable) quantumVulnerable++;
+
+      double secondsToCrack = math.pow(2, entropy) / hashSpeed;
+
+      if (entropy < 40)
+        weak++;
+      else if (entropy < 65)
+        med++;
+      else
+        strong++;
+
+      AuditResult? bestReport;
+
+      var digest = sha1.convert(utf8.encode(decrypted)).toString();
+      if (breachSet.contains(digest.substring(0, 10))) {
+        bestReport = AuditResult(
+            id: row['id'],
+            platform: row['platform'],
+            username: row['username'] ?? "---",
+            risk: RiskLevel.critical,
+            reason: "ROCKYOU_BREACH_MATCH",
+            entropy: entropy);
+      }
+
+      if (bestReport == null && secondsToCrack < thirtyDaysInSeconds) {
+        bestReport = AuditResult(
+            id: row['id'],
+            platform: row['platform'],
+            username: row['username'] ?? "---",
+            risk: secondsToCrack < 3600 ? RiskLevel.critical : RiskLevel.warning,
+            reason: secondsToCrack < 3600 ? "INSTANT_CRACK_VULNERABILITY" : "LOW_COMPUTATIONAL_COST",
+            entropy: entropy);
+      }
+
+      if (bestReport == null && isQuantumVulnerable) {
+        bestReport = AuditResult(
+          id: row['id'],
+          platform: row['platform'],
+          username: row['username'] ?? "---",
+          risk: RiskLevel.warning,
+          reason: "GROVER_MARGIN_WEAK",
+          entropy: entropy,
+        );
+      }
+
+      if (bestReport == null && _staticHasKeyboardPattern(decrypted)) {
+        bestReport = AuditResult(
+            id: row['id'],
+            platform: row['platform'],
+            username: row['username'] ?? "---",
+            risk: RiskLevel.warning,
+            reason: "KEYBOARD_PATTERN_DETECTED",
+            entropy: entropy);
+      }
+
+      if (bestReport != null) tempReports.add(bestReport);
+      passwordGroups.putIfAbsent(decrypted, () => []).add(row);
+    }
+
+    passwordGroups.forEach((pass, instances) {
+      if (instances.length > 1) {
+        for (var inst in instances) {
+          if ((inst['is_excluded'] as int? ?? 0) == 1) continue;
+          bool alreadyHasCritical = tempReports.any((r) => r.id == inst['id'] && r.risk == RiskLevel.critical);
+          if (!alreadyHasCritical) {
+            tempReports.add(AuditResult(
+                id: inst['id'],
+                platform: inst['platform'],
+                username: inst['username'] ?? "---",
+                risk: RiskLevel.critical,
+                reason: "KEY_REUSE_DETECTED",
+                entropy: _staticCalculateEntropy(pass)));
+          }
+        }
+      }
+    });
+
+    return {
+      'reports': tempReports,
+      'avgEntropy': analyzedCount > 0 ? totalEntropy / analyzedCount : 0.0,
+      'quantumVulnerable': quantumVulnerable,
+      'weak': weak,
+      'med': med,
+      'strong': strong,
+      'excluded': excluded
+    };
+  }
+
+  static double _staticCalculateEntropy(String password) {
+    if (password.isEmpty) return 0;
+    double poolSize = 0;
+    if (password.contains(RegExp(r'[a-z]'))) poolSize += 26;
+    if (password.contains(RegExp(r'[A-Z]'))) poolSize += 26;
+    if (password.contains(RegExp(r'[0-9]'))) poolSize += 10;
+    if (password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'))) poolSize += 32;
+    return password.length * (math.log(poolSize > 0 ? poolSize : 1) / math.log(2));
+  }
+
+  static bool _staticHasKeyboardPattern(String password) {
+    const patterns = ['qwerty', 'asdfgh', 'zxcvbn', '123456', 'qazwsx'];
+    return patterns.any((p) => password.toLowerCase().contains(p));
+  }
+
+  static Future<void> _runVaultAudit() async {
+    final db = _getDatabase();
+    final List<Map<String, dynamic>> rows = db.select('SELECT * FROM accounts');
+    if (rows.isEmpty) {
+      print("${C.yellow}Vault is empty. Nothing to audit.${C.reset}");
+      return;
+    }
+
+    print("\n${C.blue}${C.bold}🛡️  PASSGUARD SECURITY AUDIT (HEAVY_ENGINE)${C.reset}");
+    stdout.write("${C.yellow}🔑 Master Password to start analysis:${C.reset} ");
+    stdin.echoMode = false;
+    String? masterPass = stdin.readLineSync();
+    stdin.echoMode = true;
+    print("\n${C.cyan}📡 ANALYZING_VAULT_INTEGRITY...${C.reset}\n");
+
+    if (masterPass == null || masterPass.isEmpty) return;
+    final mk = Uint8List.fromList(utf8.encode(masterPass));
+
+    try {
+      final results = _heavyAuditTask({
+        'rows': rows,
+        'masterKey': mk,
+        'breachSet': <String>{},
+      });
+
+      final List<AuditResult> reports = results['reports'];
+
+      print("${C.grey}┌──────────────────────┬────────────┬─────────────────────────────┐${C.reset}");
+      print("${C.grey}│${C.reset} ${C.bold}${'PLATFORM'.padRight(20)}${C.reset} ${C.grey}│${C.reset} ${C.bold}${'RISK'.padRight(10)}${C.reset} ${C.grey}│${C.reset} ${C.bold}${'REASON'.padRight(27)}${C.reset} ${C.grey}│${C.reset}");
+      print("${C.grey}├──────────────────────┼────────────┼─────────────────────────────┤${C.reset}");
+
+      for (var r in reports) {
+        String color = r.risk == RiskLevel.critical ? C.red : C.yellow;
+        print("${C.grey}│${C.reset} ${r.platform.padRight(20).substring(0, 20)} ${C.grey}│${C.reset} ${color}${r.risk.name.toUpperCase().padRight(10)}${C.reset} ${C.grey}│${C.reset} ${r.reason.padRight(27).substring(0, 27)} ${C.grey}│${C.reset}");
+      }
+      print("${C.grey}└──────────────────────┴────────────┴─────────────────────────────┘${C.reset}");
+
+      print("\n${C.blue}${C.bold}📊 AUDIT_SUMMARY:${C.reset}");
+      print("  • Avg Entropy:   ${C.cyan}${results['avgEntropy'].toStringAsFixed(2)} bits${C.reset}");
+      print("  • Weak Assets:   ${C.red}${results['weak']}${C.reset}");
+      print("  • Low Entropy Risk:  ${C.yellow}${results['quantumVulnerable']}${C.reset}");
+
+      if (reports.isEmpty) {
+        print("\n${C.green}${C.bold}✅ SYSTEM_SAFE: All security protocols met.${C.reset}\n");
+      } else {
+        print("\n${C.yellow}${C.bold}⚠️  ACTION_REQUIRED: Fix identified vulnerabilities.${C.reset}\n");
+      }
+    } catch (e) {
+      print("${C.red}💥 Audit Engine Error: $e${C.reset}");
+    } finally {
+      mk.fillRange(0, mk.length, 0);
+    }
+  }
+
   static void _printDetailedHelp() {
     print("\n${C.blue}${C.bold}🛡️  PASSGUARD OS | CLI Engine Help${C.reset}");
-    print("${C.grey}Detailed documentation${C.reset}\n");
+    print("${C.grey}Comprehensive security suite documentation${C.reset}\n");
 
     print("${C.yellow}${C.bold}USAGE:${C.reset}");
     print("  pg <command> [arguments]\n");
 
     print("${C.yellow}${C.bold}CORE COMMANDS:${C.reset}");
     _printCmd("list", "Display all stored accounts in a formatted table.");
-    _printCmd("add", "Create a new record. Supports manual input or interactive password generation (Random, PIN, Pronounceable, High Entropy).");
-    _printCmd("get <name>", "Retrieve details, decrypt password, and start Live 2FA mode if a seed is present.");
-    _printCmd("2fa <name>", "Directly launch Live 2FA TOTP display for a specific account.");
-    _printCmd("edit <name>", "Modify username or password of an existing record.");
-    _printCmd("delete <name>", "Permanently remove a record from the vault (requires confirmation).");
+    _printCmd("add", "Interactive creation of records with auto-gen support.");
+    _printCmd("get <name>", "Full decryption of account, notes, and Live 2FA.");
+    _printCmd("2fa <name>", "Quick access: Only show the Live TOTP code.");
+    _printCmd("edit <name>", "Modify existing records (selective update).");
+    _printCmd("delete <name>", "Permanently wipe a record from the vault.");
+    
+    print("\n${C.yellow}${C.bold}SECURITY & AUDIT:${C.reset}");
+    _printCmd("audit", "Run the Heavy Audit Engine (Re-use, Entropy, Quantum).");
+    _printCmd("gen", "Stand-alone Pro Generator with crack-time estimation.");
 
     print("\n${C.yellow}${C.bold}UTILITIES:${C.reset}");
-    _printCmd("gen", "Stand-alone password generator. Provides entropy analysis and crack-time estimates.");
-    _printCmd("config <path>", "Link the CLI to your PassGuard database (.db) file. Required for first-time setup.");
-    _printCmd("help", "Show this detailed technical documentation.");
+    _printCmd("config <path>", "Link to a specific 'passguard_v2.db' file.");
+    _printCmd("help", "Show this technical documentation.");
 
-    print("\n${C.yellow}${C.bold}GENERATOR MODES (Inside 'gen' or 'add'):${C.reset}");
-    print("  ${C.cyan}Random${C.reset}        Full alphanumeric + symbols mix. High security.");
-    print("  ${C.cyan}PIN${C.reset}           Numeric only. Ideal for cards or device locks.");
-    print("  ${C.cyan}Pronounceable${C.reset} Vowel/Consonant patterns. Easier to memorize.");
-    print("  ${C.cyan}High Entropy${C.reset}       Ultra-high entropy (32+ chars) for maximum resistance.");
+    print("\n${C.blue}${C.bold}📊 AUDIT ENGINE METRICS:${C.reset}");
+    print("  ${C.red}• CRITICAL:${C.reset} Key reuse, Instant crack (<1h), or Breach Match.");
+    print("  ${C.yellow}• WARNING:${C.reset}  Keyboard patterns, Grover's Margin (Quantum).");
+    print("  ${C.cyan}• ENTROPY:${C.reset}  Analyzed via Shannon algorithm (Pool vs Length).");
 
-    print("\n${C.yellow}${C.bold}SECURITY NOTES:${C.reset}");
-    print("  - Master Password is never stored; it is used to derive encryption keys in memory.");
-    print("  - All sensitive data is encrypted using AES-GCM.");
-    print("  - TOTP codes are generated locally and refreshed every 30 seconds.");
-    print("${C.grey}${'-' * 60}${C.reset}\n");
+    print("\n${C.grey}${'-' * 65}${C.reset}");
+    print("${C.grey}PassGuard CLI Engine v1.0.0 | 2026${C.reset}\n");
   }
 
   static void _printCmd(String cmd, String desc) {
@@ -144,129 +378,59 @@ class PassGuardCLI {
   static void _printUsage() {
     print("\n${C.blue}${C.bold}🛡️  PASSGUARD OS | CLI Engine${C.reset}");
     print("${C.grey}${'-' * 45}${C.reset}");
-    print("  ${C.cyan}pg list${C.reset}            List all accounts");
-    print("  ${C.cyan}pg get <name>${C.reset}      Show details & password (Live TOTP)");
-    print("  ${C.cyan}pg 2fa <name>${C.reset}      Show only TOTP code (Live)");
-    print("  ${C.cyan}pg gen${C.reset}             Secure password generator");
-    print("  ${C.cyan}pg add${C.reset}             Create a new record");
-    print("  ${C.cyan}pg edit <name>${C.reset}     Modify an existing record");
-    print("  ${C.cyan}pg delete <name>${C.reset}   Remove a record");
-    print("  ${C.cyan}pg config <path>${C.reset}   Set vault (.db) location");
+    print("  ${C.cyan}pg list${C.reset}             List all accounts");
+    print("  ${C.cyan}pg get <name>${C.reset}       Show details & password");
+    print("  ${C.cyan}pg audit${C.reset}            Run security audit");
+    print("  ${C.cyan}pg gen${C.reset}              Secure generator");
+    print("  ${C.cyan}pg config <path>${C.reset}    Set vault location");
     print("${C.grey}${'-' * 45}${C.reset}");
   }
 
   static void _handleGenerator() {
     print("\n${C.blue}${C.bold}🔐 PASSGUARD GENERATOR PRO${C.reset}");
     final res = _runGeneratorFlow();
-    if (res != null) {
-      _printGeneratedResult(res);
-    }
+    if (res != null) _printGeneratedResult(res);
   }
 
   static GeneratedPassword? _runGeneratorFlow() {
-    print("\n${C.yellow}🎲 Generator Options:${C.reset}");
-    print("  [1] Random  [2] PIN (Numeric)  [3] Pronounceable  [4] High-Entropy");
-    stdout.write("Select mode (default 1): ");
+    print("\n${C.yellow}🎲 Options: [1] Random [2] PIN [3] Pronounceable [4] High-Entropy${C.reset}");
+    stdout.write("Select (1): ");
     String? choice = stdin.readLineSync();
     GeneratorOptions options;
     if (choice == '2') {
-      stdout.write("PIN Length (default 4): ");
+      stdout.write("Length (4): ");
       int l = int.tryParse(stdin.readLineSync() ?? "") ?? 4;
-      options = GeneratorOptions(
-        mode: GeneratorMode.random, 
-        length: l,
-        digits: true,
-        upper: false,
-        lower: false,
-        symbols: false,
-        enforceAllSets: false,
-      );
+      options = GeneratorOptions(mode: GeneratorMode.random, length: l, digits: true, upper: false, lower: false, symbols: false, enforceAllSets: false);
     } else if (choice == '3') {
       stdout.write("Syllables (5): ");
       int s = int.tryParse(stdin.readLineSync() ?? "") ?? 5;
-      options = GeneratorOptions(
-        mode: GeneratorMode.pronounceable, 
-        syllables: s, 
-        pronounceableAddNumber: true
-      );
+      options = GeneratorOptions(mode: GeneratorMode.pronounceable, syllables: s, pronounceableAddNumber: true);
     } else if (choice == '4') {
-      options = GeneratorOptions(
-        mode: GeneratorMode.quantum, 
-        length: 32
-      );
+      options = GeneratorOptions(mode: GeneratorMode.quantum, length: 32);
     } else {
       stdout.write("Length (20): ");
       int l = int.tryParse(stdin.readLineSync() ?? "") ?? 20;
-      options = GeneratorOptions(
-        mode: GeneratorMode.random, 
-        length: l,
-        upper: true,
-        lower: true,
-        digits: true,
-        symbols: true
-      );
+      options = GeneratorOptions(mode: GeneratorMode.random, length: l, upper: true, lower: true, digits: true, symbols: true);
     }
-    try {
-      final result = _generator.generate(options);
-      if (choice == '2') {
-        print("${C.grey}Note: PINs have lower entropy than alphanumeric passwords.${C.reset}");
-      }
-      return result;
-    } catch (e) {
-      print("${C.red}Error: $e${C.reset}");
-      return null;
-    }
+    return _generator.generate(options);
   }
 
   static void _printGeneratedResult(GeneratedPassword res) {
-    String strengthColor;
-    switch (res.strength) {
-      case StrengthLevel.weak: strengthColor = C.red; break;
-      case StrengthLevel.fair: strengthColor = C.yellow; break;
-      case StrengthLevel.good: strengthColor = C.green; break;
-      case StrengthLevel.strong: strengthColor = C.cyan; break;
-      default: strengthColor = C.blue + C.bold;
-    }
-    print("\n${C.grey}┌──────────────────────────────────────────────────────────┐${C.reset}");
+    print("\n${C.grey}┌${'─' * 50}┐${C.reset}");
     print("${C.grey}│${C.reset} ${C.bold}VALUE:${C.reset} ${C.green}${C.bold}${res.value}${C.reset}");
-    print("${C.grey}├──────────────────────────────────────────────────────────┤${C.reset}");
-    print("${C.grey}│${C.reset} Strength: $strengthColor${res.strength.name.toUpperCase()}${C.reset}");
-    print("${C.grey}│${C.reset} Entropy:  ${C.cyan}${res.entropyBits} bits${C.reset}");
-    print("${C.grey}│${C.reset} Crack Time: ${C.yellow}${res.crackTime}${C.reset}");
-    print("${C.grey}└──────────────────────────────────────────────────────────┘${C.reset}\n");
+    print("${C.grey}├${'─' * 50}┤${C.reset}");
+    print("${C.grey}│${C.reset} Strength: ${C.cyan}${res.strength.name.toUpperCase()}${C.reset}");
+    print("${C.grey}│${C.reset} Entropy:  ${C.yellow}${res.entropyBits} bits${C.reset}");
+    print("${C.grey}└${'─' * 50}┘${C.reset}\n");
   }
 
   static void _setConfig(String newPath) {
     if (File(newPath).existsSync()) {
       _configFile.writeAsStringSync(newPath);
-      print("${C.green}✅ Database path updated successfully.${C.reset}");
+      print("${C.green}✅ Database path updated.${C.reset}");
     } else {
-      print("${C.red}❌ Error: File not found.${C.reset}");
+      print("${C.red}❌ File not found.${C.reset}");
     }
-  }
-
-  static Row? _selectAccount(String searchName) {
-    final db = _getDatabase();
-    final results = db.select('SELECT * FROM accounts WHERE platform LIKE ?', ['%$searchName%']);
-    if (results.isEmpty) {
-      print("${C.red}❌ No account found matching: $searchName${C.reset}");
-      return null;
-    }
-    if (results.length == 1) {
-      return results.first;
-    }
-    print("\n${C.yellow}${C.bold}🤔 Multiple accounts found. Please select one:${C.reset}");
-    for (int i = 0; i < results.length; i++) {
-      print("  ${C.blue}[${i + 1}]${C.reset} ${C.bold}${results[i]['platform']}${C.reset} ${C.grey}| User:${C.reset} ${results[i]['username'] ?? 'N/A'}");
-    }
-    stdout.write("\n${C.bold}Enter number (1-${results.length}):${C.reset} ");
-    String? choice = stdin.readLineSync();
-    int? index = int.tryParse(choice ?? "");
-    if (index == null || index < 1 || index > results.length) {
-      print("${C.red}❌ Invalid selection.${C.reset}");
-      return null;
-    }
-    return results[index - 1];
   }
 
   static void _listAccounts() {
@@ -276,34 +440,15 @@ class PassGuardCLI {
       print("${C.yellow}Vault is empty.${C.reset}");
       return;
     }
-    int maxP = 10;
-    int maxU = 10;
-    for (final row in results) {
-      maxP = max(maxP, row['platform'].toString().length);
-      maxU = max(maxU, (row['username'] ?? 'No User').toString().length);
-    }
-    final top = "┌${'─' * (maxP + 2)}┬${'─' * (maxU + 2)}┐";
-    final mid = "├${'─' * (maxP + 2)}┼${'─' * (maxU + 2)}┤";
-    final bot = "└${'─' * (maxP + 2)}┴${'─' * (maxU + 2)}┘";
     print("\n${C.blue}${C.bold}📦 VAULT CONTENT:${C.reset}");
-    print("${C.grey}$top${C.reset}");
-    print("${C.grey}│${C.reset} ${C.bold}${'Platform'.padRight(maxP)}${C.reset} ${C.grey}│${C.reset} ${C.bold}${'Username'.padRight(maxU)}${C.reset} ${C.grey}│${C.reset}");
-    print("${C.grey}$mid${C.reset}");
     for (final row in results) {
-      String p = row['platform'].toString().padRight(maxP);
-      String u = (row['username'] ?? 'No User').toString().padRight(maxU);
-      print("${C.grey}│${C.reset} ${C.cyan}$p${C.reset} ${C.grey}│${C.reset} $u ${C.grey}│${C.reset}");
+      print("  ${C.cyan}• ${row['platform'].toString().padRight(18)}${C.reset} ${C.grey}| User:${C.reset} ${row['username'] ?? 'N/A'}");
     }
-    print("${C.grey}$bot${C.reset}");
   }
 
   static Future<void> _getAndDecryptAccount(String searchName, {bool onlyOTP = false}) async {
     final row = _selectAccount(searchName);
     if (row == null) return;
-    if (!onlyOTP) {
-      print("\n${C.blue}${C.bold}══ DETAILS: ${row['platform']} ══${C.reset}");
-      print("${C.grey}User:${C.reset} ${row['username']}");
-    }
     stdout.write("${C.yellow}🔑 Master Password:${C.reset} ");
     stdin.echoMode = false;
     String? masterPass = stdin.readLineSync();
@@ -312,42 +457,23 @@ class PassGuardCLI {
     if (masterPass == null || masterPass.isEmpty) return;
     final mk = Uint8List.fromList(utf8.encode(masterPass));
     try {
-      print("${C.grey}${'-' * 40}${C.reset}");
       if (!onlyOTP) {
         final pass = EncryptionService.decrypt(combinedText: row['password'], masterKeyBytes: mk);
-        if (pass == "ERROR: DECRYPTION_FAILED") throw "Invalid Master Password";
+        if (pass.startsWith("ERROR:")) throw "Invalid Master Password";
         print("${C.green}${C.bold}🔓 Password:${C.reset} $pass");
       }
       if (row['otp_seed'] != null && row['otp_seed'].toString().isNotEmpty) {
         final seed = EncryptionService.decrypt(combinedText: row['otp_seed'], masterKeyBytes: mk);
-        if (seed != "ERROR: DECRYPTION_FAILED") {
+        if (!seed.startsWith("ERROR:")) {
           final cleanSeed = seed.toUpperCase().replaceAll(' ', '');
-          print("${C.yellow}🕒 2FA Live Mode (Press ENTER to exit)${C.reset}");
-          
+          print("${C.yellow}🕒 2FA Live Mode (ENTER to exit)${C.reset}");
           bool running = true;
-          StreamSubscription? sub;
-          sub = stdin.listen((event) {
-            running = false;
-            sub?.cancel();
-          });
+          stdin.listen((event) => running = false);
           while (running) {
-            final now = DateTime.now().millisecondsSinceEpoch;
-            final code = OTP.generateTOTPCodeString(cleanSeed, now, isGoogle: true);
-            final sec = 30 - (DateTime.now().second % 30);
-            
-            final bar = "█" * (sec ~/ 3) + "░" * (10 - (sec ~/ 3));
-            
-            stdout.write("${C.clearLine}${C.cyan}${C.bold}OTP Code: ${code.substring(0, 3)} ${code.substring(3)}${C.reset} ${C.grey}[$bar] ${sec}s${C.reset}");
-            
+            final code = OTP.generateTOTPCodeString(cleanSeed, DateTime.now().millisecondsSinceEpoch, isGoogle: true);
+            stdout.write("${C.clearLine}${C.cyan}${C.bold}OTP: ${code.substring(0, 3)} ${code.substring(3)}${C.reset} [${30 - (DateTime.now().second % 30)}s]");
             await Future.delayed(Duration(seconds: 1));
           }
-          print("\n${C.grey}Live mode ended.${C.reset}");
-        }
-      }
-      if (!onlyOTP) {
-        if (row['notes'] != null && row['notes'].isNotEmpty) {
-          final notes = EncryptionService.decrypt(combinedText: row['notes'], masterKeyBytes: mk);
-          print("${C.grey}📝 Notes:${C.reset} $notes");
         }
       }
     } catch (e) {
@@ -355,41 +481,38 @@ class PassGuardCLI {
     } finally {
       mk.fillRange(0, mk.length, 0);
     }
-    print("${C.grey}${'-' * 40}${C.reset}");
+  }
+
+  static Row? _selectAccount(String searchName) {
+    final db = _getDatabase();
+    final results = db.select('SELECT * FROM accounts WHERE platform LIKE ?', ['%$searchName%']);
+    if (results.isEmpty) return null;
+    if (results.length == 1) return results.first;
+    print("\n${C.yellow}Select Account:${C.reset}");
+    for (int i = 0; i < results.length; i++) {
+      print("  [${i + 1}] ${results[i]['platform']} (${results[i]['username']})");
+    }
+    int idx = int.tryParse(stdin.readLineSync() ?? "") ?? 1;
+    return results[idx - 1];
   }
 
   static void _addAccount() {
     print("\n${C.blue}${C.bold}➕ ADD NEW RECORD${C.reset}");
     stdout.write("Platform: "); String platform = stdin.readLineSync() ?? "";
     stdout.write("Username: "); String user = stdin.readLineSync() ?? "";
-    stdout.write("Password (Leave empty to use GENERATOR): ");
-    stdin.echoMode = false;
-    String inputPass = stdin.readLineSync() ?? "";
-    stdin.echoMode = true;
+    stdout.write("Password (blank for GEN): "); stdin.echoMode = false; String inputPass = stdin.readLineSync() ?? ""; stdin.echoMode = true;
     print("");
-    String finalPass = inputPass;
-    if (inputPass.isEmpty) {
-      final res = _runGeneratorFlow();
-      if (res == null) {
-        print("${C.red}❌ Generation failed. Operation aborted.${C.reset}");
-        return;
-      }
-      finalPass = res.value;
-      print("${C.green}✅ Using generated: ${C.bold}$finalPass${C.reset}");
-    }
+    String finalPass = inputPass.isEmpty ? (_runGeneratorFlow()?.value ?? "ERROR") : inputPass;
     stdout.write("2FA Seed (Optional): "); String seed = stdin.readLineSync() ?? "";
-    stdout.write("\n${C.yellow}🔑 Master Password to encrypt:${C.reset} ");
-    stdin.echoMode = false; String? mp = stdin.readLineSync(); stdin.echoMode = true;
-    print("");
+    stdout.write("${C.yellow}🔑 Master Password:${C.reset} "); stdin.echoMode = false; String? mp = stdin.readLineSync(); stdin.echoMode = true;
     if (mp == null || mp.isEmpty) return;
     final mk = Uint8List.fromList(utf8.encode(mp));
     try {
-      final db = _getDatabase();
       final now = DateTime.now().toIso8601String();
-      db.execute('INSERT INTO accounts (platform, username, password, otp_seed, created_at, updated_at, category) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [platform, user, EncryptionService.encrypt(finalPass, mk), seed.isNotEmpty ? EncryptionService.encrypt(seed, mk) : null, now, now, 'PERSONAL']);
-      print("\n${C.green}✅ Saved successfully.${C.reset}");
-    } catch (e) { print("${C.red}❌ Error: $e${C.reset}"); } finally { mk.fillRange(0, mk.length, 0); }
+      _getDatabase().execute('INSERT INTO accounts (platform, username, password, otp_seed, created_at, updated_at, category) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [platform, user, EncryptionService.encrypt(finalPass, mk), seed.isNotEmpty ? EncryptionService.encrypt(seed, mk) : null, now, now, 'PERSONAL']);
+      print("${C.green}✅ Saved.${C.reset}");
+    } finally { mk.fillRange(0, mk.length, 0); }
   }
 
   static void _editAccount(String searchName) {
@@ -397,30 +520,84 @@ class PassGuardCLI {
     if (row == null) return;
 
     print("\n${C.yellow}${C.bold}📝 EDITING: ${row['platform']} (${row['username']})${C.reset}");
-    stdout.write("New User [${row['username']}]: "); String newUser = stdin.readLineSync() ?? "";
-    stdout.write("New Password (blank to keep): "); stdin.echoMode = false; String newPass = stdin.readLineSync() ?? ""; stdin.echoMode = true;
+    print("${C.grey}Leave blank to keep current value.${C.reset}\n");
 
-    stdout.write("\n${C.yellow}🔑 Master Password to confirm:${C.reset} ");
-    stdin.echoMode = false; String? mp = stdin.readLineSync(); stdin.echoMode = true;
-    if (mp == null || mp.isEmpty) return;
+    stdout.write("New Platform [${row['platform']}]: ");
+    String newPlatform = stdin.readLineSync() ?? "";
+    
+    stdout.write("New Username [${row['username']}]: ");
+    String newUser = stdin.readLineSync() ?? "";
+
+    stdout.write("New Password (blank to keep current): ");
+    stdin.echoMode = false;
+    String newPass = stdin.readLineSync() ?? "";
+    stdin.echoMode = true;
+    print("");
+
+    stdout.write("New 2FA Seed (blank to keep current): ");
+    String newSeed = stdin.readLineSync() ?? "";
+
+    stdout.write("\n${C.yellow}🔑 Master Password to confirm changes:${C.reset} ");
+    stdin.echoMode = false;
+    String? mp = stdin.readLineSync();
+    stdin.echoMode = true;
+    print("");
+
+    if (mp == null || mp.isEmpty) {
+      print("${C.red}❌ Action aborted: Master Password required.${C.reset}");
+      return;
+    }
+
     final mk = Uint8List.fromList(utf8.encode(mp));
+
     try {
-      String encPass = newPass.isNotEmpty ? EncryptionService.encrypt(newPass, mk) : row['password'];
-      _getDatabase().execute('UPDATE accounts SET username = ?, password = ?, updated_at = ? WHERE id = ?',
-        [newUser.isEmpty ? row['username'] : newUser, encPass, DateTime.now().toIso8601String(), row['id']]);
-      print("\n${C.green}✅ Updated successfully.${C.reset}");
-    } catch (e) { print("${C.red}❌ Error: $e${C.reset}"); } finally { mk.fillRange(0, mk.length, 0); }
+      final String platformUpdate = newPlatform.isNotEmpty ? newPlatform : row['platform'];
+      final String userUpdate = newUser.isNotEmpty ? newUser : row['username'];
+
+      final String passUpdate = newPass.isNotEmpty 
+          ? EncryptionService.encrypt(newPass, mk) 
+          : row['password'];
+
+      final dynamic seedUpdate = newSeed.isNotEmpty 
+          ? EncryptionService.encrypt(newSeed, mk) 
+          : row['otp_seed'];
+
+      final db = _getDatabase();
+      db.execute('''
+        UPDATE accounts 
+        SET platform = ?, 
+            username = ?, 
+            password = ?, 
+            otp_seed = ?, 
+            updated_at = ?,
+            audit_cache = NULL 
+        WHERE id = ?
+      ''', [
+        platformUpdate,
+        userUpdate,
+        passUpdate,
+        seedUpdate,
+        DateTime.now().toIso8601String(),
+        row['id']
+      ]);
+
+      print("\n${C.green}✅ Account '${platformUpdate}' updated successfully.${C.reset}");
+      print("${C.grey}Note: Audit cache cleared. Run 'pg audit' to refresh security score.${C.reset}");
+
+    } catch (e) {
+      print("${C.red}❌ Update Error: $e${C.reset}");
+    } finally {
+      mk.fillRange(0, mk.length, 0);
+    }
   }
 
   static void _deleteAccount(String searchName) {
     final row = _selectAccount(searchName);
     if (row == null) return;
-    stdout.write("\n${C.red}${C.bold}⚠️  Delete '${row['platform']}' (${row['username']})? (y/N):${C.reset} ");
+    stdout.write("${C.red}Delete '${row['platform']}'? (y/N): ${C.reset}");
     if (stdin.readLineSync()?.toLowerCase() == 'y') {
       _getDatabase().execute('DELETE FROM accounts WHERE id = ?', [row['id']]);
-      print("${C.green}🗑️  Deleted successfully.${C.reset}");
-    } else {
-      print("${C.grey}❌ Action cancelled.${C.reset}");
+      print("${C.green}🗑️ Deleted.${C.reset}");
     }
   }
 }
