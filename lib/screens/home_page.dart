@@ -1281,6 +1281,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           ),
                         ],
                       ),
+
+                      _buildSystemGroup(
+                        label: "EXTERNAL_SECURITY_NODES",
+                        items: [
+                          ListTile(
+                            leading: const Icon(Icons.sd_storage, color: Color(0xFF00FBFF)),
+                            title: const Text("EXPLORE_NULLFILES_HYBRID_VAULT", 
+                              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                            subtitle: const Text("Portable privacy for external media", 
+                              style: TextStyle(fontSize: 10, color: Colors.grey)),
+                            trailing: const Icon(Icons.open_in_new, size: 14, color: Colors.white24),
+                            onTap: () { 
+                              Navigator.pop(context); 
+                              _showNullFilesInfoDialog(context); 
+                            },
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 40),
                     ],
                   ),
@@ -1290,6 +1308,125 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         ),
       ),
+    );
+  }
+
+  void _showNullFilesInfoDialog(BuildContext context) {
+    const String repoUrl = "https://github.com/Nooch98/NullFiles";
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF0A0A0E),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+          side: const BorderSide(color: Color(0xFF00FBFF), width: 1),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.sd_storage_outlined, color: Color(0xFF00FBFF)),
+            const SizedBox(width: 10),
+            const Text("NULLFILES_HYBRID_VAULT", 
+              style: TextStyle(color: Colors.white, letterSpacing: 1.5, fontSize: 14, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Portable privacy tool for external storage using a hybrid security model.",
+                  style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 16),
+                
+                _buildTechSection("CORE_FUNCTIONS", [
+                  "FAST_MODE: Instant relocation to stealth vault.",
+                  "DEEP_MODE: Recursive AES-256-GCM encryption.",
+                  "METADATA_LOCK: Argon2id + Encrypted SQLite mapping.",
+                ]),
+                
+                const SizedBox(height: 12),
+                
+                _buildTechSection("DESIGN_PHILOSOPHY", [
+                  "Zero write amplification on flash media.",
+                  "Optimized for large portable archives.",
+                  "No installation / Full portability.",
+                ]),
+
+                const SizedBox(height: 16),
+                const Divider(color: Colors.white10, height: 1),
+                const SizedBox(height: 12),
+                
+                const Text(
+                  "NOTICE: To maintain bunker-level trust, NullFiles is only provided as source code. Manual auditing and self-compiling is required.",
+                  style: TextStyle(color: Color(0xFFFF00FF), fontSize: 11, fontStyle: FontStyle.italic),
+                ),
+
+                const SizedBox(height: 12),
+                
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.link, size: 14, color: Colors.grey),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          repoUrl,
+                          style: TextStyle(color: Color(0xFF00FBFF), fontSize: 10, fontFamily: 'monospace'),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("EXIT", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00FBFF).withOpacity(0.1),
+              side: const BorderSide(color: Color(0xFF00FBFF)),
+            ),
+            onPressed: () {
+              Clipboard.setData(const ClipboardData(text: repoUrl));
+              // Aquí puedes llamar a tu snackbar de éxito:
+              _showSuccessSnackBar("URL_COPIED_TO_CLIPBOARD");
+            },
+            icon: const Icon(Icons.copy, size: 18, color: Color(0xFF00FBFF)),
+            label: const Text("COPY_REPO_URL", style: TextStyle(color: Colors.white, fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTechSection(String title, List<String> points) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(color: Color(0xFF00FBFF), fontSize: 10, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        ...points.map((p) => Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Text("• $p", style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        )),
+      ],
     );
   }
 
