@@ -120,6 +120,7 @@ PassGuard OS includes a command-line interface (CLI) for advanced users who need
 * **Persistent Config:** Set your database path once and the CLI will remember it.
 * **Secure Memory Handling:** Master Key bytes are wiped from RAM immediately after use.
 * **Stealth Input:** Passwords and Master Keys are hidden (no echo) while typing.
+* **Heavy Audit Engine:** Run deep security scans (entropy analysis, key reuse detection, and quantum vulnerability checks) directly from the terminal.
 ---
 #### Installation
 1.  **Compile the binary:**
@@ -144,6 +145,7 @@ PassGuard OS includes a command-line interface (CLI) for advanced users who need
 | `pg list` | Displays all stored platforms and usernames. |
 | `pg get <name>` | Decrypts and shows password, notes, and TOTP. |
 | `pg 2fa <name>` | Quick access: Shows only the current 6-digit 2FA code. |
+| `pg audit` | Security Scan Detects weak, reused, or breached keys. |
 | `pg add` | Interactive prompt to create a new encrypted record. |
 | `pg gen` | Displays password generator interactive menu |
 | `pg edit <name>` | Modify username or password of an existing record. |
@@ -199,9 +201,32 @@ User: cyber_user
 OTP Code: 482 910 [██████░░░░] 18s
 ```
 
-> [!CAUTION]
-> **Terminal Security:** Your terminal might keep a history of commands. While `pg` hides your password during input, avoid passing sensitive data as plain arguments. Always use the interactive prompts for maximum safety.
+#### Example: Security Audit
+```bash
+$ pg audit
+🛡️  PASSGUARD SECURITY AUDIT (HEAVY_ENGINE)
+🔑 Master Password to start analysis: 
 
+📡 ANALYZING_VAULT_INTEGRITY...
+
+┌──────────────────────┬────────────┬─────────────────────────────┐
+│ PLATFORM             │ RISK       │ REASON                      │
+├──────────────────────┼────────────┼─────────────────────────────┤
+│ Google               │ CRITICAL   │ KEY_REUSE_DETECTED          │
+│ Amazon               │ CRITICAL   │ KEY_REUSE_DETECTED          │
+│ Legacy_Server        │ WARNING    │ GROVER_MARGIN_WEAK          │
+└──────────────────────┴────────────┴─────────────────────────────┘
+
+📊 AUDIT_SUMMARY:
+  • Avg Entropy:   84.20 bits
+  • Weak Assets:   2
+  • Low Entropy Risk:  1
+
+⚠️  ACTION_REQUIRED: Fix identified vulnerabilities.
+```
+
+> [!CAUTION]
+> **Terminal Security:** `pg` prevents password echoing during input. However, be aware of "shoulder surfing" in public places. The `audit_cache` is automatically cleared upon editing records to ensure your security score is always based on fresh data.
 ### Security Features
 | Feature | Description |
 |--- |---
