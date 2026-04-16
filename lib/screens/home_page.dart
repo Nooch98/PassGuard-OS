@@ -29,6 +29,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:io';
+import 'dart:math';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:sqflite/sqflite.dart';
@@ -2569,20 +2570,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  double _calculateLiveEntropy(String password) {
+    if (password.isEmpty) return 0.0;
+    
+    Set<String> charset = {};
+    if (password.contains(RegExp(r'[a-z]'))) charset.addAll("abcdefghijklmnopqrstuvwxyz".split(''));
+    if (password.contains(RegExp(r'[A-Z]'))) charset.addAll("ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(''));
+    if (password.contains(RegExp(r'[0-9]'))) charset.addAll("0123456789".split(''));
+    if (password.contains(RegExp(r'[^a-zA-Z0-9]'))) charset.addAll("!@#\$%^&*()_+".split(''));
+
+    if (charset.isEmpty) return 0.0;
+    return password.length * (log(charset.length) / log(2));
+  }
+
   void _showForm({PasswordModel? existingPassword}) {
     final platformC = TextEditingController(text: existingPassword?.platform ?? '');
     final userC = TextEditingController(text: existingPassword?.username ?? '');
-    final passC = TextEditingController(
-      text: existingPassword != null 
+    
+    final String initialPass = existingPassword != null 
         ? EncryptionService.decrypt(combinedText: existingPassword.password, masterKeyBytes: widget.masterKey)
-        : ''
-    );
+        : '';
+    final passC = TextEditingController(text: initialPass);
+
     final notesC = TextEditingController(
       text: existingPassword?.notes != null
         ? EncryptionService.decrypt(combinedText: existingPassword!.notes!, masterKeyBytes: widget.masterKey)
         : ''
     );
 
+    double localEntropy = _calculateLiveEntropy(initialPass);
     String localSelectedCategory = existingPassword?.category ?? 'PERSONAL';
 
     final List<Map<String, dynamic>> categories = [
@@ -2640,6 +2656,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   label: "ACCESS_CREDENTIAL", 
                   icon: Icons.lock_outline_rounded,
                   isPassword: true,
+                  onChanged: (value) {
+                    setModalState(() {
+                      localEntropy = _calculateLiveEntropy(value);
+                    });
+                  },
                   suffix: IconButton(
                     icon: const Icon(Icons.auto_fix_high, color: Color(0xFFFF00FF), size: 20),
                     onPressed: () async {
@@ -2647,12 +2668,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         context: context,
                         builder: (context) => const PasswordGeneratorDialog(),
                       );
-                      if (result != null) setModalState(() => passC.text = result);
+                      if (result != null) {
+                        setModalState(() {
+                          passC.text = result;
+                          localEntropy = _calculateLiveEntropy(result);
+                        });
+                      }
                     },
                   ),
                 ),
                 
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
+                _buildEntropyBar(localEntropy),
+                const SizedBox(height: 20),
+
                 _buildCyberInput(controller: notesC, label: "ENCRYPTED_NOTES", icon: Icons.description_outlined, maxLines: 2),
                 
                 const SizedBox(height: 25),
@@ -2775,17 +2804,74 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildEntropyBar(double entropy) {
+    Color color;
+    String label;
+    double progress = (entropy / 128).clamp(0.0, 1.0);
+
+    if (entropy < 45) {
+      color = const Color(0xFFFF4545);
+      label = "VULNERABLE_NODE";
+    } else if (entropy < 75) {
+      color = const Color(0xFFFFB344);
+      label = "STANDARD_ENCRYPTION";
+    } else if (entropy < 128) {
+      color = const Color(0xFF00FBFF);
+      label = "HIGH_SECURED";
+    } else {
+      color = const Color(0xFF00FF00);
+      label = "HIGH_ENTROPY_SECURED";
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: TextStyle(color: color, fontSize: 9, fontFamily: 'monospace', fontWeight: FontWeight.bold, letterSpacing: 1)),
+            Text("${entropy.toStringAsFixed(1)} BITS", style: TextStyle(color: color.withOpacity(0.5), fontSize: 9, fontFamily: 'monospace')),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Stack(
+          children: [
+            Container(
+              width: double.infinity,
+              height: 2,
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(10)),
+            ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 400),
+              curve: Curves.easeOutCubic,
+              width: (MediaQuery.of(context).size.width - 48) * progress,
+              height: 2,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [BoxShadow(color: color.withOpacity(0.4), blurRadius: 6, spreadRadius: 1)],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _buildCyberInput({
     required TextEditingController controller, 
     required String label, 
     required IconData icon, 
     int maxLines = 1,
     bool isPassword = false,
-    Widget? suffix
+    Widget? suffix,
+    Function(String)? onChanged,
   }) {
     return TextField(
       controller: controller,
       maxLines: maxLines,
+      obscureText: isPassword,
+      onChanged: onChanged,
       style: const TextStyle(color: Colors.white, fontFamily: 'monospace', fontSize: 14),
       decoration: InputDecoration(
         prefixIcon: Icon(icon, color: const Color(0xFF00FBFF).withOpacity(0.5), size: 20),
