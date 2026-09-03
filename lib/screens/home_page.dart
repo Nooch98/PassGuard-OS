@@ -22,6 +22,7 @@ import 'package:flutter/services.dart';
 import 'package:passguard/screens/dashboard.dart';
 import 'package:passguard/screens/identities_vault_screen.dart';
 import 'package:passguard/services/WarpController.dart';
+import 'package:passguard/services/ram_purge_service.dart';
 import 'package:passguard/services/security_controller.dart';
 import 'package:passguard/widgets/cybertype_widget.dart';
 import 'package:path_provider/path_provider.dart';
@@ -70,6 +71,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _isSearching = false;
   final _searchController = TextEditingController();
   Timer? _totpTimer;
+  Timer? _clipboardTimer;
   int _totpNowMs = DateTime.now().millisecondsSinceEpoch;
   double _currentHealthScore = 0;
   int _selectedIndex = 0;
@@ -113,15 +115,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _searchController.dispose();
     _clipboardTimer?.cancel();
     _pageController.dispose();
+    RAMPurgeService.purgeNow();
     super.dispose();
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      SessionManager().activity();
-    }
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  if (state == AppLifecycleState.resumed) {
+    SessionManager().activity();
+  } else if (state == AppLifecycleState.paused || 
+             state == AppLifecycleState.inactive || 
+             state == AppLifecycleState.detached ||
+             state == AppLifecycleState.hidden) {
+    RAMPurgeService.purgeNow();
   }
+}
 
   Future<void> _migrateRecoveryCodesToEncrypted() async {
     try {
