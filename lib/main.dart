@@ -9,6 +9,7 @@
 |
 | Responsibilities:
 |   - Initialize Flutter engine
+|   - Initialize native security protections
 |   - Configure status/navigation bar styling
 |   - Enforce portrait-only orientation (mobile)
 |   - Apply global cyberpunk theme
@@ -18,7 +19,7 @@
 |   main() → PasswordApp → AuthWrapper → HomePage
 |
 | Security Notes:
-|   - No sensitive data is initialized here
+|   - SecurityService initialized prior to network/bridge services
 |   - Master key is handled only after authentication
 |   - UI configuration does not affect cryptographic logic
 |
@@ -34,21 +35,24 @@
 import 'dart:io' show Platform, ProcessSignal, exit;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:passguard/services/security_service.dart';
 import 'package:passguard/services/session_manager.dart';
 import 'screens/auth_wrapper.dart';
 import 'services/local_bridge_Service.dart';
 import 'services/bridge_auth_service.dart';
 
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+final SecurityService securityService = SecurityService();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  securityService.initialize();
+  
   _setupShutdownHooks();
   await BridgeAuthService.instance.initialize();
 
   if (Platform.isWindows || Platform.isLinux) {
     await LocalBridgeService.start();
-  } else {
   }
 
   SystemChrome.setSystemUIOverlayStyle(
@@ -60,11 +64,11 @@ void main() async {
     ),
   );
 
-  SystemChrome.setPreferredOrientations([
+  await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-
+  
   runApp(const PasswordApp());
 }
 
@@ -96,7 +100,7 @@ class PasswordApp extends StatelessWidget {
       onPointerDown: (_) => SessionManager().activity(),
       behavior: HitTestBehavior.translucent,
       child: MaterialApp(
-        navigatorKey: navigatorKey,
+        navigatorKey: securityService.navigatorKey,
         title: 'PassGuard OS',
         debugShowCheckedModeBanner: false,
         theme: ThemeData.dark().copyWith(
