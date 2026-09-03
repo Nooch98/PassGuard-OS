@@ -6,6 +6,9 @@
 <img width="1260" alt="PassGuard OS Login" src="https://github.com/user-attachments/assets/657a5861-b7f1-4739-a0c9-3389fda68ba4" />
 </div>
 
+> [!IMPORTANT]
+> **Android Breaking Change:** Upgrading to this version will cause a decryption error on existing vaults. You must delete and recreate your vault to use the new security format.
+
 **A password manager with advanced encryption, steganography, and panic protocols**
 
 ![badge](https://img.shields.io/badge/Flutter-3.38+-02569B?style=flat&logo=flutter)
