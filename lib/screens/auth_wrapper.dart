@@ -76,7 +76,6 @@ class _AuthWrapperState extends State<AuthWrapper>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    SessionService.instance.hardLock(); 
     _passController.dispose();
     _confirmController.dispose();
     super.dispose();
@@ -99,7 +98,6 @@ class _AuthWrapperState extends State<AuthWrapper>
 
   Future<void> _checkStatus() async {
     try {
-
       bool first = await AuthService.isFirstTime().timeout(
         const Duration(seconds: 3), 
         onTimeout: () => true,
@@ -143,7 +141,7 @@ class _AuthWrapperState extends State<AuthWrapper>
         timeout: const Duration(minutes: 5),
         onTimeout: () {
           _hardLock(reason: 'SESSION_TIMEOUT');
-          navigatorKey.currentState?.pushNamedAndRemoveUntil('/', (route) => false);
+          securityService.navigatorKey.currentState?.pushNamedAndRemoveUntil('/', (route) => false);
         },
       );
     }
@@ -342,7 +340,6 @@ class _AuthWrapperState extends State<AuthWrapper>
     HapticFeedback.heavyImpact();
 
     try {
-
       final db = await DBHelper.database;
       final garbage = {
         'password': 'ERASED_${DateTime.now().millisecondsSinceEpoch}', 
