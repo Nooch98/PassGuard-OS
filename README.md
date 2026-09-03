@@ -264,6 +264,8 @@ PassGuard OS integrates a low-level, multi-threaded C++ watchdog engine via Dart
 > * **Potential False Positives:** Running local Python automation tools, IDE debuggers, or game trainers alongside PassGuard OS might trigger the watchdog even if they are not targeting the app directly.
 > * **Behavior:** If any matching process signature is detected, PassGuard OS will prioritize data safety, instantly wipe active keys from memory, and shut down to prevent potential memory leaks or dumping attempts.
 
+https://github.com/user-attachments/assets/4ee679ab-3bba-4391-80c2-b363c66cdac3
+
 ### Stealth Protocol (Travel Mode)
 PassGuard OS implements a **Plausible Deniability** layer through its Stealth Protocol. Unlike standard "Travel Modes" that show only what is marked, our logic is **Inverted for maximum discretion**:
 
