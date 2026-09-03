@@ -257,8 +257,12 @@ PassGuard OS integrates a low-level, multi-threaded C++ watchdog engine via Dart
 * **RAM Read Restriction:** Invokes system-level calls (`DenyMemoryReading`) upon startup to restrict foreign process handle access to the application's RAM space.
 * **Immediate Zeroization on Threat:** If a threat is detected, the watchdog instantly executes `SessionService.instance.hardLock()`—wiping all raw key byte arrays (`Uint8List`) from memory—before displaying a native security alert and terminating the process (`exit(0)`).
 
-> [!CAUTION]
-> **SYSTEM TERMINATION:** If a debugger or memory scanner is detected while PassGuard OS is running, the app will instantly wipe the active RAM keys and shut down to protect your vault secrets.
+> [!WARNING]
+> **HIGH-SENSITIVITY AGGRESSIVE DETECTION:**
+> The watchdog engine operates with zero-tolerance rules. It scans background running tasks for signatures linked to debuggers, memory inspectors, or environment runtimes like active **Python interpreters** and background developer scripts.
+> 
+> * **Potential False Positives:** Running local Python automation tools, IDE debuggers, or game trainers alongside PassGuard OS might trigger the watchdog even if they are not targeting the app directly.
+> * **Behavior:** If any matching process signature is detected, PassGuard OS will prioritize data safety, instantly wipe active keys from memory, and shut down to prevent potential memory leaks or dumping attempts.
 
 ### Stealth Protocol (Travel Mode)
 PassGuard OS implements a **Plausible Deniability** layer through its Stealth Protocol. Unlike standard "Travel Modes" that show only what is marked, our logic is **Inverted for maximum discretion**:
