@@ -25,6 +25,7 @@
     - [Warp Sync (P2P Transfer)](#warp-sync-p2p-transfer)
     - [PassGuard CLI (Terminal Engine)](#passguard-cli-terminal-engine)
     - [Security Features](#security-features)
+        - [Active Anti-Tamper & Memory Watchdog](#active-anti-tamper--memory-watchdog-native-ffi)
     - [Password Management](#password-management)
     - [Chrome/Firefox Extension (OPTIONAL)](#chromefirefox-extension-optional)
     - [Backup & Sync](#backup--sync)
@@ -244,6 +245,20 @@ $ pg audit
 | Isolate Computing | Offloads decryption and audit tasks to a separate CPU thread to prevent memory-sniffing on the main thread during idle. |
 | Brute-Force Estimator | Theoretical offline crack-time estimate using a fixed benchmark |
 | Grover-Adjusted Margin | Optional heuristic view for very high-entropy credentials under simplified advanced attack assumptions |
+
+### Active Anti-Tamper & Memory Watchdog (Native FFI)
+
+PassGuard OS integrates a low-level, multi-threaded C++ watchdog engine via Dart FFI to protect active memory in real-time against dynamic analysis, reverse engineering, and memory-dumping tools.
+
+#### Key Capabilities
+* **Active Anti-Debugging:** Continuously checks for attached debuggers (`IsDebuggerPresent`, `CheckRemoteDebuggerPresent`) to prevent thread-freezing or memory inspection.
+* **Code Injection & Hooking Detection:** Identifies the presence of dynamic instrumentation frameworks (such as Frida) injected into the application space.
+* **Memory Scanner Mitigation:** Detects active signature profiles of known scanning tools (e.g., Cheat Engine, Python memory inspection scripts, x64dbg).
+* **RAM Read Restriction:** Invokes system-level calls (`DenyMemoryReading`) upon startup to restrict foreign process handle access to the application's RAM space.
+* **Immediate Zeroization on Threat:** If a threat is detected, the watchdog instantly executes `SessionService.instance.hardLock()`—wiping all raw key byte arrays (`Uint8List`) from memory—before displaying a native security alert and terminating the process (`exit(0)`).
+
+> [!CAUTION]
+> **SYSTEM TERMINATION:** If a debugger or memory scanner is detected while PassGuard OS is running, the app will instantly wipe the active RAM keys and shut down to protect your vault secrets.
 
 ### Stealth Protocol (Travel Mode)
 PassGuard OS implements a **Plausible Deniability** layer through its Stealth Protocol. Unlike standard "Travel Modes" that show only what is marked, our logic is **Inverted for maximum discretion**:
