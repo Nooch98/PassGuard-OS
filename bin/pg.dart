@@ -293,7 +293,7 @@ class PassGuardCLI {
       return;
     }
 
-    print("\n${C.blue}${C.bold}🛡️  PASSGUARD SECURITY AUDIT (HEAVY_ENGINE)${C.reset}");
+    print("\n${C.blue}${C.bold}🛡️   PASSGUARD SECURITY AUDIT (HEAVY_ENGINE)${C.reset}");
     stdout.write("${C.yellow}🔑 Master Password to start analysis:${C.reset} ");
     stdin.echoMode = false;
     String? masterPass = stdin.readLineSync();
@@ -307,7 +307,7 @@ class PassGuardCLI {
       final results = _heavyAuditTask({
         'rows': rows,
         'masterKey': mk,
-        'breachSet': <String>{},
+        'breachSet': <String>{}, 
       });
 
       final List<AuditResult> reports = results['reports'];
@@ -449,31 +449,37 @@ class PassGuardCLI {
   static Future<void> _getAndDecryptAccount(String searchName, {bool onlyOTP = false}) async {
     final row = _selectAccount(searchName);
     if (row == null) return;
+    
     stdout.write("${C.yellow}🔑 Master Password:${C.reset} ");
     stdin.echoMode = false;
     String? masterPass = stdin.readLineSync();
     stdin.echoMode = true;
     print("");
+    
     if (masterPass == null || masterPass.isEmpty) return;
     final mk = Uint8List.fromList(utf8.encode(masterPass));
+    
     try {
       if (!onlyOTP) {
         final pass = EncryptionService.decrypt(combinedText: row['password'], masterKeyBytes: mk);
         if (pass.startsWith("ERROR:")) throw "Invalid Master Password";
         print("${C.green}${C.bold}🔓 Password:${C.reset} $pass");
       }
+      
       if (row['otp_seed'] != null && row['otp_seed'].toString().isNotEmpty) {
         final seed = EncryptionService.decrypt(combinedText: row['otp_seed'], masterKeyBytes: mk);
         if (!seed.startsWith("ERROR:")) {
           final cleanSeed = seed.toUpperCase().replaceAll(' ', '');
-          print("${C.yellow}🕒 2FA Live Mode (ENTER to exit)${C.reset}");
-          bool running = true;
-          stdin.listen((event) => running = false);
-          while (running) {
+          print("${C.yellow}🕒 2FA Live Mode (Press Ctrl+C to exit)${C.reset}");
+          
+          final timer = Timer.periodic(Duration(seconds: 1), (timer) {
             final code = OTP.generateTOTPCodeString(cleanSeed, DateTime.now().millisecondsSinceEpoch, isGoogle: true);
             stdout.write("${C.clearLine}${C.cyan}${C.bold}OTP: ${code.substring(0, 3)} ${code.substring(3)}${C.reset} [${30 - (DateTime.now().second % 30)}s]");
-            await Future.delayed(Duration(seconds: 1));
-          }
+          });
+
+          stdin.readLineSync();
+          timer.cancel();
+          stdout.write("\n");
         }
       }
     } catch (e) {
